@@ -1,0 +1,23 @@
+# User content is stored outside the repository by default.
+/.local/
+/.venv/
+/dist/
+/build/
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.pth
+*.pt
+*.onnx
+*.index
+*.vst3
+*.bin
+*.wav
+*.mp3
+*.flac
+*.log
+.env
+node_modules/
+/renderer-dist/
+/release/
+*.tsbuildinfo

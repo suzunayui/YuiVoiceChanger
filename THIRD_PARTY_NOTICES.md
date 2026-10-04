@@ -1,0 +1,27 @@
+# Third-party notices
+
+Original application code is MIT licensed, copyright 2026 YUI.
+Electron and React are MIT licensed. NumPy is BSD-3-Clause licensed.
+python-sounddevice is MIT licensed; PortAudio has its own MIT-style license.
+Retain LICENSE.electron.txt and LICENSES.chromium.html from packaged Electron.
+
+## Beatrice VST host
+
+The Beatrice adapter hosts a separately installed official Beatrice 2.0.0-rc.3
+VST3 through Pedalboard 0.9.25 (Spotify, GPLv3). Pedalboard is an external local
+dependency, not a bundled MIT component. Distribution of the combined program
+requires compliance with its applicable GPL conditions; installing it externally
+does not itself resolve distribution obligations.
+
+The preset format was implemented using the public interface in
+https://github.com/prj-beatrice/beatrice-vst (MIT, Project Beatrice and
+Contributors). The official VST and its inference library and model licenses
+remain separate; they are not relicensed by this repository. The VST archive,
+proprietary milk models, images and test recordings remain local and excluded
+from Git. No inference library is extracted or called directly.
+
+## Historical sources
+
+The RVC WebUI and w-okada/voice-changer integrations and submodules were removed.
+Their notices remain in Git history alongside the old sources. The current
+runtime does not import either project. Models and recordings are not bundled.
