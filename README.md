@@ -4,6 +4,16 @@ Windows向けのBeatrice専用リアルタイムボイスチェンジャーで�
 Electron / Reactの画面とPythonの音声処理を組み合わせ、CPUで変換します。
 RVC・VCClient・CUDAは不要です。
 
+## インストールして使う
+
+[Releases](https://github.com/suzunayui/YuiVoiceChanger/releases/latest)からインストーラーを取得します。
+
+1. 起動後「必要な環境を自動セットアップ」を押します。Pythonやコマンドの知識は不要です。初回はネット接続が必要です。
+2. 「VSTのダウンロード先」から公式Windows版ZIPを取得・展開し、フォルダを選びます。
+3. 利用可能なBeatriceモデルを展開し、.tomlを選択します。マイクと出力先を選べば開始できます。
+
+専用環境は `%USERPROFILE%\.YuiVoiceChanger\runtime` に保存します。既存のPythonやPATHは変更しません。失敗した場合は画面のエラーを確認して再試行できます。VSTとモデルは各配布元の条件に従って取得してください。
+
 ## 開発環境
 
 Windows、Node.js 22以降、Python 3.11以降を使用します。

@@ -11,7 +11,7 @@ const ENGINE_ROOT = app.isPackaged ? process.resourcesPath : ROOT;
 const HOME = process.env.YVC_DESKTOP_HOME || path.join(os.homedir(),'.YuiVoiceChanger');
 const LEGACY_CONFIG = path.join(process.env.LOCALAPPDATA || app.getPath('userData'),'YuiVoiceChanger','desktop.json');
 const CONFIG = path.join(HOME,'desktop.json');
-let window, worker, quitting=false;
+let window, worker, quitting=false, settingUp=false;
 function read(file,fallback={}) {try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return fallback;}}
 function initialConfig(){
  return {beatrice_model:'',beatrice_vst:'',beatrice_pitch:12,beatrice_block:.04,beatrice_noise_filter:true,beatrice_gate:-50,beatrice_clarity:false,python:'',beatrice_libs:'',input:-1,output:-1,input_name:'',output_name:'',gain:0};
@@ -61,6 +61,15 @@ else {
   ipcMain.handle('yvc',async(event,action,payload)=>{
    if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame)throw Error('Unauthorized IPC');
    if(action==='config')return config;
+   if(action==='setup-runtime'){
+    if(settingUp)throw Error('セットアップは実行中です。');
+    settingUp=true;
+    try{
+     if(worker){const child=worker;await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('音声処理を停止してアプリを再起動してください。')),15000);child.once('exit',()=>{clearTimeout(timer);resolve();});request('quit');});}
+     const next=await require('./setup.cjs').setup(HOME,message=>send({type:'setup',message}));
+     save(next);boot();return config;
+    }finally{settingUp=false;}
+   }
    if(action==='open-resource'){
     const links={vst:'https://prj-beatrice.com/',models:'https://prj-beatrice.com/2.0.0-rc.0-official-model-1-terms',python:'https://www.python.org/downloads/windows/',cable:'https://vb-audio.com/Cable/'};
     if(!Object.hasOwn(links,payload))throw Error('Unknown resource');
@@ -105,8 +114,8 @@ else {
     return result.canceled?null:result.filePaths[0];
    }
    if(action==='connect'){if(worker)throw Error('起動中です。アプリを再起動してください。');boot();return;}
-   if(action==='devices'){if(!worker)boot();else request('devices');return;}
-   if(action==='start'){save(payload);request('start',{config});return;}
+   if(action==='devices'){if(settingUp)return;if(!worker)boot();else request('devices');return;}
+   if(action==='start'){if(settingUp)throw Error('セットアップ完了までお待ちください。');save(payload);request('start',{config});return;}
    if(action==='stop'){request('stop');return;}
    throw Error('Unknown action');
   });

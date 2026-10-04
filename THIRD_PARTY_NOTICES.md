@@ -25,3 +25,5 @@ from Git. No inference library is extracted or called directly.
 The RVC WebUI and w-okada/voice-changer integrations and submodules were removed.
 Their notices remain in Git history alongside the old sources. The current
 runtime does not import either project. Models and recordings are not bundled.
+
+自動セットアップは公式python.orgからPython 3.12.10（PSF License）を、PyPIからNumPy、sounddevice、pedalboard、cffi（MIT）、pycparser（BSD）を個人PCへ取得します。ライセンス文書は取得したランタイムと各パッケージのdist-info内に保持します。VST・モデルはこの処理に含めません。
