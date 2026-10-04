@@ -39,7 +39,7 @@ npm run dist
 
 UIテスト前に通常のアプリを閉じてください。
 実機テストは `node tests/desktop-audio.cjs <設定JSONのパス>` で実行できます。
-GitHub Actionsはモデル不要のPythonテスト、Electronテスト、Windowsビルドを実行します。
+テストとWindowsビルドはローカルで実行します。GitHub Actionsによる自動実行は行いません。
 インストーラーは `release/` に生成します。
 Python・依存ライブラリ・VST・モデルは同梱しません。
 
