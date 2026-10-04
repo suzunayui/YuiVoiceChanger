@@ -21,12 +21,26 @@ class SingingTests(unittest.TestCase):
         self.feed(s,150)
         self.assertEqual((s.mode,s.shift),('talking',14))
 
-    def test_boundary_has_hysteresis_and_silence_returns_to_talking(self):
+    def test_boundary_silence_and_noise_hold_singing_until_low_voice(self):
         s=SingingSwitch(14)
         self.feed(s,500)
         self.feed(s,270)
         self.assertEqual(s.mode,'singing')
-        for _ in range(60):s.process(np.zeros(480,np.float32))
+        for _ in range(200):s.process(np.zeros(480,np.float32))
+        rng=np.random.default_rng(42)
+        for _ in range(100):s.process(rng.normal(0,.05,480).astype(np.float32))
+        self.assertEqual((s.mode,s.shift),('singing',0))
+        self.feed(s,150,.08)
+        self.assertEqual(s.mode,'singing')
+        self.feed(s,150,.5)
+        self.assertEqual((s.mode,s.shift),('talking',14))
+
+    def test_audio_discontinuity_reset_preserves_singing(self):
+        s=SingingSwitch(14)
+        self.feed(s,500)
+        s.reset(preserve_mode=True)
+        self.assertEqual((s.mode,s.shift),('singing',0))
+        self.feed(s,150)
         self.assertEqual((s.mode,s.shift),('talking',14))
 
     def test_unvoiced_noise_does_not_activate_singing(self):

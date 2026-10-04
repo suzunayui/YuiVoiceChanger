@@ -11,10 +11,12 @@ class SingingSwitch:
             raise ValueError('歌唱モードの切り替え音高は150〜900Hzです。')
         self.reset()
 
-    def reset(self):
+    def reset(self, preserve_mode=False):
+        mode = getattr(self, 'mode', 'talking') if preserve_mode else 'talking'
+        shift = getattr(self, 'shift', self.talking_shift) if preserve_mode else self.talking_shift
         self.history = np.zeros(384, np.float32)  # 48 ms of existing audio; no output buffering.
-        self.mode = 'talking'
-        self.shift = self.talking_shift
+        self.mode = mode
+        self.shift = shift
         self.high = self.low = self.unvoiced = 0.
         self.hz = None
 
@@ -46,9 +48,9 @@ class SingingSwitch:
         self.hz = self.detect(audio)
         if self.hz is None:
             self.high = self.low = 0.
+            previous_unvoiced = self.unvoiced
             self.unvoiced += seconds
-            if self.unvoiced >= .4:
-                self.mode = 'talking'
+            if previous_unvoiced < .4 <= self.unvoiced:
                 self.history.fill(0)
         else:
             self.unvoiced = 0.

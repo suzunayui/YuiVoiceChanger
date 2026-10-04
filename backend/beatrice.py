@@ -158,8 +158,8 @@ class BeatricePipeline:
     def reset(self):
         self.plugin.reset()
         if getattr(self, 'singing', None) is not None:
-            self.singing.reset()
-            self.plugin.pitch_shift_st = self.singing.talking_shift
+            self.singing.reset(preserve_mode=True)
+            self.plugin.pitch_shift_st = round(self.singing.shift*8)/8
         self.envelope.reset()
         if self.clarity is not None:
             self.clarity.reset()
