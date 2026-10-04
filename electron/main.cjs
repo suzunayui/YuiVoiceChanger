@@ -5,7 +5,7 @@ const path = require('node:path');
 const readline = require('node:readline');
 const os = require('node:os');
 const ROOT = path.resolve(__dirname,'..');
-const ENGINE_ROOT = app.isPackaged ? process.resourcesPath : ROOT;
+const ENGINE_ROOT = require('./paths.cjs').engineRoot(ROOT,process.resourcesPath,app.isPackaged);
 // AppData can be virtualized when launched from a packaged host such as Codex.
 // Keep settings outside AppData so Explorer and development launches share them.
 const HOME = process.env.YVC_DESKTOP_HOME || path.join(os.homedir(),'.YuiVoiceChanger');
@@ -38,18 +38,20 @@ function save(next){
 function boot(){
   if(worker)return;
   if(!config.python)return;
-  if(!config.python||!fs.existsSync(config.python)){send({type:'error',message:'環境設定でPythonを指定してください。'});return;}
+  if(!config.python||!fs.existsSync(config.python)||!fs.statSync(config.python).isFile()){send({type:'error',message:'環境設定でPython実行ファイルを指定してください。'});return;}
+  if(!fs.existsSync(path.join(ENGINE_ROOT,'backend','worker.py'))){send({type:'error',message:'音声処理ファイルが見つかりません。アプリのZIPをすべて展開してください。場所: '+ENGINE_ROOT});return;}
   const logs=path.join(HOME,'logs');fs.mkdirSync(logs,{recursive:true});
   const log=fs.createWriteStream(path.join(logs,'independent-engine.log'),{flags:'a'});
-  worker=spawn(config.python,['-I','-u',path.join(ENGINE_ROOT,'backend','worker.py')],{
+  try{worker=spawn(config.python,['-I','-u',path.join(ENGINE_ROOT,'backend','worker.py')],{
     cwd:ENGINE_ROOT,windowsHide:true,env:{...process.env,PYTHONIOENCODING:'utf-8',OMP_NUM_THREADS:'2',YVC_BEATRICE_LIBS:config.beatrice_libs||path.join(ROOT,'.local','beatrice-libs')},
-    stdio:['pipe','pipe','pipe']});
+    stdio:['pipe','pipe','pipe']});}
+  catch(e){const message=`Pythonを起動できません (${e.code||e.message})。実行ファイル: ${config.python} / 作業フォルダ: ${ENGINE_ROOT}`;log.end(message+'\n');send({type:'error',message});return;}
   worker.stderr.pipe(log);
   readline.createInterface({input:worker.stdout}).on('line',line=>{
     try{const event=JSON.parse(line);send(event);if(event.type==='ready')request('devices');}
     catch{log.write(line+'\n');}
   });
-  worker.on('error',e=>send({type:'error',message:e.message}));
+  worker.on('error',e=>{const message=`Pythonを起動できません (${e.code||e.message})。実行ファイル: ${config.python} / 作業フォルダ: ${ENGINE_ROOT}`;log.write(message+'\n');send({type:'error',message});worker=null;log.end();});
   worker.on('exit',code=>{worker=null;log.end();send({type:'state',state:'stopped'});if(!quitting&&code)send({type:'error',message:`音声処理が終了しました (${code})。Python環境を確認してください。`});});
 }
 function request(command,payload={}){

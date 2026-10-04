@@ -1,12 +1,14 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
+const os=require('node:os');
 const {spawn}=require('node:child_process');
 function run(exe,args){return new Promise((resolve,reject)=>{
- const p=spawn(exe,args,{windowsHide:true,stdio:['ignore','pipe','pipe']});let output='';
+ const cwd=os.tmpdir();
+ const p=spawn(exe,args,{cwd,windowsHide:true,stdio:['ignore','pipe','pipe']});let output='';
  for(const s of [p.stdout,p.stderr])s.on('data',d=>{output=(output+d).slice(-6000)});
  const timer=setTimeout(()=>{p.kill();reject(Error('環境の準備が時間切れになりました。もう一度試してください。'));},120000);
- p.once('error',e=>{clearTimeout(timer);reject(e)});p.once('exit',code=>{clearTimeout(timer);code===0?resolve(output):reject(Error(output||`準備に失敗しました (${code})`))});
+ p.once('error',e=>{clearTimeout(timer);reject(Error(`準備用プログラムを起動できません (${e.code||e.message})。実行ファイル: ${exe} / 作業フォルダ: ${cwd}`))});p.once('exit',code=>{clearTimeout(timer);code===0?resolve(output):reject(Error(output||`準備に失敗しました (${code})`))});
 });}
 async function download(url,file,hash){
  const response=await fetch(url,{signal:AbortSignal.timeout(120000)});
