@@ -50,9 +50,16 @@ def devices():
 def audio_settings(sd, input_id, output_id, output_channels, rate=48000):
     """Keep inference at 48k; let shared WASAPI adapt each device's mix format."""
     hosts = sd.query_hostapis()
-    extra = tuple(sd.WasapiSettings(exclusive=False, auto_convert=True)
-                  if hosts[sd.query_devices(device)['hostapi']]['name'] == 'Windows WASAPI'
-                  else None for device in (input_id, output_id))
+    def host_settings(device):
+        host = hosts[sd.query_devices(device)['hostapi']]['name']
+        if host == 'Windows WASAPI':
+            return sd.WasapiSettings(exclusive=False, auto_convert=True)
+        if host == 'Core Audio':
+            return sd.CoreAudioSettings(change_device_parameters=False,
+                                        fail_if_conversion_required=False,
+                                        conversion_quality='max')
+        return None
+    extra = tuple(host_settings(device) for device in (input_id, output_id))
     for label, device, channels, settings, check in (
         ('マイク', input_id, 1, extra[0], sd.check_input_settings),
         ('出力先', output_id, output_channels, extra[1], sd.check_output_settings),

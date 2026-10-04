@@ -16,6 +16,7 @@ async function download(url,file,hash){
  fs.writeFileSync(file,data);
 }
 async function setup(home,progress){
+ if(process.platform==='darwin')return setupMac(home,progress);
  if(process.platform!=='win32'||process.arch!=='x64')throw Error('自動セットアップはWindows 64bit用です。');
  // A fresh folder keeps interrupted installs and existing environments independent.
  const dir=path.join(home,'runtime',`python-3.12.10-${crypto.randomUUID()}`);fs.mkdirSync(dir,{recursive:true});
@@ -39,6 +40,28 @@ async function setup(home,progress){
  fs.writeFileSync(path.join(dir,'python312._pth'),'python312.zip\n.\nlibs\n');
  const python=path.join(dir,'python.exe');progress('音声ライブラリの動作を確認しています…');
  await run(python,['-I','-c','import numpy, sounddevice, pedalboard, cffi, tomllib; print(numpy.__version__); print(sounddevice.query_devices())']);
+ return {python,beatrice_libs:libs};
+}
+async function setupMac(home,progress){
+ if(process.arch!=='arm64')throw Error('Mac版はApple Silicon専用です。Rosettaを使わず起動してください。');
+ const dir=path.join(home,'runtime',`python-3.12.11-${crypto.randomUUID()}`);fs.mkdirSync(dir,{recursive:true});
+ progress('Mac用Pythonをダウンロードしています…');
+ const archive=path.join(dir,'python.tar.gz');
+ await download('https://github.com/astral-sh/python-build-standalone/releases/download/20250918/cpython-3.12.11%2B20250918-aarch64-apple-darwin-install_only.tar.gz',archive,'f7bd4b224b5257a2530a9f798612239d9f95043a8432d44c93761a01c58492e9');
+ await run('/usr/bin/tar',['-xzf',archive,'-C',dir]);fs.unlinkSync(archive);
+ const python=path.join(dir,'python','bin','python3.12');
+ const libs=path.join(dir,'libs');fs.mkdirSync(libs);
+ for(const [name,version,tag] of [['numpy','1.26.4','cp312-cp312-macosx_11_0_arm64'],['sounddevice','0.5.1','py3-none-macosx_10_6_x86_64.macosx_10_6_universal2'],['pedalboard','0.9.25','cp312-cp312-macosx_11_0_arm64'],['cffi','1.17.1','cp312-cp312-macosx_11_0_arm64'],['pycparser','2.22','py3-none-any']]){
+  progress(`${name}を準備しています…`);
+  const response=await fetch(`https://pypi.org/pypi/${name}/${version}/json`,{signal:AbortSignal.timeout(30000)});
+  if(!response.ok)throw Error(`${name}の配布情報を取得できませんでした。`);
+  const metadata=await response.json();const wheel=metadata.urls.find(x=>x.filename.endsWith(`-${tag}.whl`));
+  if(!wheel||!wheel.url.startsWith('https://files.pythonhosted.org/'))throw Error(`${name}のMac対応ファイルが見つかりません。`);
+  const zip=path.join(dir,`${name}.zip`);await download(wheel.url,zip,wheel.digests.sha256);
+  await run('/usr/bin/ditto',['-x','-k',zip,libs]);fs.unlinkSync(zip);
+ }
+ progress('Mac用音声ライブラリを確認しています…');
+ await run(python,['-I','-c',`import sys; sys.path.insert(0, ${JSON.stringify(libs)}); import numpy, sounddevice, pedalboard, cffi, tomllib; print(sounddevice.query_devices())`]);
  return {python,beatrice_libs:libs};
 }
 module.exports={setup,run};

@@ -1,12 +1,28 @@
 import struct
 import unittest
+import tempfile
+from pathlib import Path
 
 import numpy as np
 
-from backend.beatrice import BeatricePipeline, component_state, preset_bytes
+from backend.beatrice import BeatricePipeline, component_state, preset_bytes, vst_path
 
 
 class BeatriceTests(unittest.TestCase):
+    def test_mac_loads_bundle_and_rejects_windows_only_bundle(self):
+        with tempfile.TemporaryDirectory() as folder:
+            bundle = Path(folder)/'beatrice_2.0.0-rc.3.vst3'
+            windows = bundle/'Contents'/'x86_64-win'/bundle.name
+            windows.parent.mkdir(parents=True)
+            windows.touch()
+            self.assertEqual(vst_path(bundle, 'win32'), windows)
+            with self.assertRaisesRegex(ValueError, 'macOS'):
+                vst_path(bundle, 'darwin')
+            mac = bundle/'Contents'/'MacOS'/bundle.stem
+            mac.parent.mkdir(parents=True)
+            mac.touch()
+            self.assertEqual(vst_path(bundle, 'darwin'), bundle)
+
     def test_vst_preset_chunk_bounds_and_unicode_model(self):
         component = component_state('声/milk.toml', 12, 72.5)
         data = preset_bytes(component)

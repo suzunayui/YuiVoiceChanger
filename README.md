@@ -1,6 +1,6 @@
 # YuiVoiceChanger
 
-Windows向けのBeatrice専用リアルタイムボイスチェンジャーです。
+Windows向けのBeatrice専用リアルタイムボイスチェンジャーです。Apple Silicon向けMac試用版も用意しています。
 Electron / Reactの画面とPythonの音声処理を組み合わせ、CPUで変換します。
 RVC・VCClient・CUDAは不要です。
 
@@ -64,3 +64,10 @@ Python・依存ライブラリ・VST・モデルは同梱しません。
 
 独自コードはMITです。[第三者ライセンス表記](THIRD_PARTY_NOTICES.md)も参照してください。
 モデル・録音・学習データはGitやインストーラーに含めません。
+
+## Mac試用版
+
+M1以降（M4を含む）向けです。公式BeatriceのMac版VSTを別途取得してください。[Mac版の導入方法](docs/mac-preview.md)。
+Mac実機での動作確認前で、Appleの署名・公証はありません。初回の起動準備が必要です。
+
+Mac上での通常ビルドは `npm run dist:mac`。Windows等から未署名の試用ZIPを組み立てる場合は `npm run dist:mac:preview`（Python 3が必要）を使います。後者は公式ElectronのARM64 ZIPのSHA256を確認し、Unixの実行権限・frameworkのシンボリックリンクを保持して組み込みます。GitHub Actionsは追加していません。

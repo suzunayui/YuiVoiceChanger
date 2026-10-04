@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,shell,clipboard} = require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,systemPreferences} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,6 +11,13 @@ const ENGINE_ROOT = app.isPackaged ? process.resourcesPath : ROOT;
 const HOME = process.env.YVC_DESKTOP_HOME || path.join(os.homedir(),'.YuiVoiceChanger');
 const LEGACY_CONFIG = path.join(process.env.LOCALAPPDATA || app.getPath('userData'),'YuiVoiceChanger','desktop.json');
 const CONFIG = path.join(HOME,'desktop.json');
+const MAC = process.platform==='darwin';
+function vstBundle(dir){
+ const candidate=dir.toLowerCase().endsWith('.vst3')?dir:path.join(dir,'beatrice_2.0.0-rc.3.vst3');
+ const binary=MAC?path.join(candidate,'Contents','MacOS',path.basename(candidate,'.vst3')):path.join(candidate,'Contents','x86_64-win',path.basename(candidate));
+ if(path.basename(candidate).toLowerCase()!=='beatrice_2.0.0-rc.3.vst3'||!fs.existsSync(binary))throw Error('公式Beatrice 2.0.0-rc.3の展開済みVSTフォルダを選択してください。');
+ return candidate;
+}
 let window, worker, quitting=false, settingUp=false;
 function read(file,fallback={}) {try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return fallback;}}
 function initialConfig(){
@@ -71,7 +78,7 @@ else {
     }finally{settingUp=false;}
    }
    if(action==='open-resource'){
-    const links={vst:'https://prj-beatrice.com/',models:'https://prj-beatrice.com/2.0.0-rc.0-official-model-1-terms',python:'https://www.python.org/downloads/windows/',cable:'https://vb-audio.com/Cable/'};
+    const links={vst:'https://prj-beatrice.com/',models:'https://prj-beatrice.com/2.0.0-rc.0-official-model-1-terms',python:'https://www.python.org/downloads/',cable:MAC?'https://existential.audio/blackhole/':'https://vb-audio.com/Cable/'};
     if(!Object.hasOwn(links,payload))throw Error('Unknown resource');
     await shell.openExternal(links[payload]);return;
    }
@@ -79,12 +86,18 @@ else {
     clipboard.writeText('py -3.12 -m pip install numpy sounddevice pedalboard==0.9.25');return;
    }
    if(action==='pick-vst-folder'){
-    const result=await dialog.showOpenDialog(window,{title:'展開したBeatrice VSTフォルダを選択',properties:['openDirectory']});
+    const result=await dialog.showOpenDialog(window,{title:'展開したBeatrice VSTフォルダを選択',properties:MAC?['openDirectory','treatPackageAsDirectory']:['openDirectory']});
     if(result.canceled)return null;
-    const dir=result.filePaths[0];
-    const candidate=dir.toLowerCase().endsWith('.vst3')?dir:path.join(dir,'beatrice_2.0.0-rc.3.vst3');
-    if(!fs.existsSync(path.join(candidate,'Contents','x86_64-win',path.basename(candidate))))throw Error('展開したbeatrice_2.0.0-rc.3フォルダ、またはその中の.vst3フォルダを選択してください。');
-    return candidate;
+    return vstBundle(result.filePaths[0]);
+   }
+   if(action==='allow-vst'){
+    if(!MAC)throw Error('この操作はMac専用です。');
+    const vst=vstBundle(config.beatrice_vst);
+    const result=await dialog.showMessageBox(window,{type:'question',buttons:['キャンセル','公式VSTの実行を許可'],defaultId:0,cancelId:0,message:'公式サイトから取得したBeatrice VSTの実行を許可しますか？',detail:vst+'\n選択したVSTの隔離属性を解除します。配布元を確認してから許可してください。'});
+    if(result.response!==1)return false;
+    const run=require('./setup.cjs').run;
+    const attributes=await run('/usr/bin/xattr',['-lr',vst]);
+    if(attributes.includes('com.apple.quarantine'))await run('/usr/bin/xattr',['-dr','com.apple.quarantine',vst]);return true;
    }
    if(action==='save')return save(payload);
    if(action==='export-settings'){
@@ -110,12 +123,15 @@ else {
    }
    if(action==='pick'){
     if(!['python','beatrice_model','beatrice_vst'].includes(payload))throw Error('Invalid selection');
-    const result=await dialog.showOpenDialog(window,{properties:['openFile'],filters:[{name:'File',extensions:payload==='beatrice_model'?['toml']:payload==='beatrice_vst'?['vst3']:['exe']}]});
+    if(MAC&&payload==='beatrice_vst'){
+     const result=await dialog.showOpenDialog(window,{properties:['openDirectory','treatPackageAsDirectory']});return result.canceled?null:vstBundle(result.filePaths[0]);
+    }
+    const result=await dialog.showOpenDialog(window,{properties:['openFile'],...(MAC&&payload==='python'?{}:{filters:[{name:'File',extensions:payload==='beatrice_model'?['toml']:payload==='beatrice_vst'?['vst3']:['exe']}]})});
     return result.canceled?null:result.filePaths[0];
    }
    if(action==='connect'){if(worker)throw Error('起動中です。アプリを再起動してください。');boot();return;}
    if(action==='devices'){if(settingUp)return;if(!worker)boot();else request('devices');return;}
-   if(action==='start'){if(settingUp)throw Error('セットアップ完了までお待ちください。');save(payload);request('start',{config});return;}
+   if(action==='start'){if(settingUp)throw Error('セットアップ完了までお待ちください。');if(MAC&&!await systemPreferences.askForMediaAccess('microphone'))throw Error('システム設定の「プライバシーとセキュリティ → マイク」でYuiVoiceChangerを許可してください。');save(payload);request('start',{config});return;}
    if(action==='stop'){request('stop');return;}
    throw Error('Unknown action');
   });

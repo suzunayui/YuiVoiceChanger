@@ -4,6 +4,16 @@ from backend.realtime import audio_settings
 
 
 class DeviceSettingsTests(unittest.TestCase):
+    def test_core_audio_uses_conversion_without_changing_hardware_settings(self):
+        sd = Mock()
+        sd.query_hostapis.return_value = [{'name': 'Core Audio'}]
+        sd.query_devices.return_value = {'hostapi': 0, 'name': 'Mac microphone'}
+        audio_settings(sd, 0, 1, 2)
+        self.assertEqual(sd.CoreAudioSettings.call_count, 2)
+        sd.CoreAudioSettings.assert_called_with(change_device_parameters=False,
+                                               fail_if_conversion_required=False,
+                                               conversion_quality='max')
+
     def test_input_and_output_get_conversion_but_other_hosts_do_not(self):
         sd = Mock()
         sd.query_hostapis.return_value = [{'name': 'Windows WASAPI'}, {'name': 'ASIO'}]

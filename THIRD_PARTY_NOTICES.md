@@ -27,3 +27,5 @@ Their notices remain in Git history alongside the old sources. The current
 runtime does not import either project. Models and recordings are not bundled.
 
 自動セットアップは公式python.orgからPython 3.12.10（PSF License）を、PyPIからNumPy、sounddevice、pedalboard、cffi（MIT）、pycparser（BSD）を個人PCへ取得します。ライセンス文書は取得したランタイムと各パッケージのdist-info内に保持します。VST・モデルはこの処理に含めません。
+
+Macの自動セットアップはAstralのpython-build-standalone（CPython 3.12.11、Apple Silicon）を公式GitHub Releasesから取得します。Pythonと同梱ライブラリの各ライセンスは取得物に含まれる表記を参照してください。Mac版もVST・音声モデルは同梱しません。配布用ZIPには公式Electronのライセンス・Chromium等の表記を保持します。

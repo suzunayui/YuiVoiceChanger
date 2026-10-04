@@ -9,8 +9,25 @@ import struct
 import tempfile
 import time
 import tomllib
+import sys
 
 import numpy as np
+
+
+def vst_path(vst, platform=None):
+    platform = sys.platform if platform is None else platform
+    vst = Path(vst)
+    if not vst.exists() or vst.suffix.lower() != '.vst3':
+        raise ValueError('公式Beatrice 2 VST3を環境設定で選択してください。')
+    if platform == 'darwin':
+        if not vst.is_dir() or not (vst/'Contents'/'MacOS'/vst.stem).is_file():
+            raise ValueError('macOS版Beatrice VST3のフォルダを選択してください。')
+        return vst
+    if vst.is_dir():
+        vst = vst/'Contents'/'x86_64-win'/vst.name
+    if not vst.is_file():
+        raise ValueError('VST3のWindows x86_64バイナリが見つかりません。')
+    return vst
 
 
 def component_state(model, pitch, average_pitch):
@@ -75,12 +92,7 @@ class BeatricePipeline:
         vst = Path(config.get('beatrice_vst', ''))
         if not model.is_file() or model.suffix.lower() != '.toml':
             raise ValueError('Beatriceモデルの.tomlを選択してください。')
-        if not vst.exists() or vst.suffix.lower() != '.vst3':
-            raise ValueError('公式Beatrice 2 VST3を環境設定で選択してください。')
-        if vst.is_dir():
-            vst = vst/'Contents'/'x86_64-win'/vst.name
-        if not vst.is_file():
-            raise ValueError('VST3のWindows x86_64バイナリが見つかりません。')
+        vst = vst_path(vst)
         with model.open('rb') as f:
             metadata = tomllib.load(f)
         if metadata.get('model', {}).get('version') != '2.0.0-rc.0':

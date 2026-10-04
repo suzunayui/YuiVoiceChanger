@@ -1,6 +1,6 @@
 {
   "name": "yui-voice-changer",
-  "version": "0.2.2",
+  "version": "0.3.0-beta.1",
   "private": true,
   "description": "Yui Voice Changer — independent realtime voice conversion",
   "main": "electron/main.cjs",
@@ -9,7 +9,9 @@
     "start": "npm run build && electron .",
     "desktop": "electron .",
     "test:ui": "node tests/electron-smoke.cjs",
-    "dist": "npm run build && electron-builder --win nsis"
+    "dist": "npm run build && electron-builder --win nsis",
+    "dist:mac": "npm run build && electron-builder --mac zip --arm64",
+    "dist:mac:preview": "npm run build && node scripts/package-mac-preview.cjs"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -68,6 +70,23 @@
       "createDesktopShortcut": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null,
+      "hardenedRuntime": false,
+      "category": "public.app-category.music",
+      "icon": "assets/icon.icns",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "声をリアルタイムで変換するためにマイクを使用します。"
+      }
     }
   }
 }
