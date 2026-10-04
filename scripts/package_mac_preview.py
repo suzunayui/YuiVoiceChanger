@@ -40,7 +40,7 @@ with zipfile.ZipFile(sys.argv[1]) as upstream, zipfile.ZipFile(destination, 'w',
             data = (root / 'assets/icon.icns').read_bytes()
         out.writestr(info, data)
     add(out, prefix + 'Resources/app.asar', Path(sys.argv[2]).read_bytes())
-    for name in ('worker.py', 'realtime.py', 'beatrice.py', '__init__.py'):
+    for name in ('worker.py', 'realtime.py', 'beatrice.py', 'singing.py', '__init__.py'):
         add(out, prefix + 'Resources/backend/' + name, (root / 'backend' / name).read_bytes())
     add(out, '起動準備.command', (root / 'scripts/mac-first-launch.command').read_bytes().replace(b'\r\n', b'\n'), 0o100755)
     add(out, 'Mac版の使い方.txt', (root / 'docs/mac-preview.md').read_bytes())

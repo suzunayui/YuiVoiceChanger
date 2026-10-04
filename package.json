@@ -1,6 +1,6 @@
 {
   "name": "yui-voice-changer",
-  "version": "0.3.0-beta.3",
+  "version": "0.3.0-beta.4",
   "private": true,
   "description": "Yui Voice Changer — independent realtime voice conversion",
   "main": "electron/main.cjs",
@@ -48,7 +48,8 @@
           "worker.py",
           "realtime.py",
           "beatrice.py",
-          "__init__.py"
+          "__init__.py",
+          "singing.py"
         ]
       }
     ],
