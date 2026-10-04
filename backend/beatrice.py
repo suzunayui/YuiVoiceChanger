@@ -138,11 +138,6 @@ class BeatricePipeline:
             preset = Path(folder)/'voice.vstpreset'
             preset.write_bytes(preset_bytes(component_state(model, pitch, average), uid))
             self.plugin.load_preset(str(preset))
-        self.singing = None
-        if config.get('beatrice_singing', False):
-            from backend.singing import SingingSwitch
-            self.singing = SingingSwitch(pitch, config.get('beatrice_singing_threshold', 300))
-            self.plugin.max_source_pitch = 96.
         self.gain = 10**(gain/20)
         self.stats = {}
         self.envelope = SilenceEnvelope(float(config.get("beatrice_gate", -50)))
@@ -157,9 +152,6 @@ class BeatricePipeline:
 
     def reset(self):
         self.plugin.reset()
-        if getattr(self, 'singing', None) is not None:
-            self.singing.reset(preserve_mode=True)
-            self.plugin.pitch_shift_st = round(self.singing.shift*8)/8
         self.envelope.reset()
         if self.clarity is not None:
             self.clarity.reset()
@@ -167,8 +159,6 @@ class BeatricePipeline:
     def convert(self, audio, silence=True):
         started = time.perf_counter()
         audio = np.asarray(audio, dtype=np.float32)
-        if getattr(self, 'singing', None) is not None:
-            self.plugin.pitch_shift_st = self.singing.process(audio)
         # Keep the streaming state alive through silence, including word onsets.
         result = self.plugin.process(audio[None], self.rate, buffer_size=480, reset=False)
         result = np.asarray(result, dtype=np.float32)
@@ -184,7 +174,4 @@ class BeatricePipeline:
         rms = float(np.sqrt(np.mean(audio**2)+1e-12))
         self.stats = dict(ms=(time.perf_counter()-started)*1000, rms=rms,
                           silent=rms < 1e-5, clip=int(np.any(np.abs(result)>1)))
-        if getattr(self, 'singing', None) is not None:
-            self.stats.update(singing_mode=self.singing.mode, input_pitch_hz=self.singing.hz,
-                              effective_pitch=self.singing.shift)
         return np.clip(result, -1, 1)
