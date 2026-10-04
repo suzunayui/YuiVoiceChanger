@@ -5,10 +5,18 @@ from pathlib import Path
 
 import numpy as np
 
-from backend.beatrice import BeatricePipeline, component_state, preset_bytes, vst_path
+from backend.beatrice import BeatricePipeline, component_state, preset_bytes, vst_path, plugin_uid
 
 
 class BeatriceTests(unittest.TestCase):
+    def test_preset_uses_the_selected_plugins_platform_specific_class_id(self):
+        with tempfile.TemporaryDirectory() as folder:
+            info = Path(folder)/'Contents'/'Resources'/'moduleinfo.json'
+            info.parent.mkdir(parents=True)
+            info.write_text('{"Classes":[{"Category":"Audio Module Class","CID":"00112233445566778899aabbccddeeff",},]}', encoding='utf8')
+            uid = plugin_uid(folder)
+            self.assertEqual(preset_bytes(b'component', uid)[8:40], b'00112233445566778899AABBCCDDEEFF')
+
     def test_mac_loads_bundle_and_rejects_windows_only_bundle(self):
         with tempfile.TemporaryDirectory() as folder:
             bundle = Path(folder)/'beatrice_2.0.0-rc.3.vst3'

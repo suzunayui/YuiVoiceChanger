@@ -10,6 +10,8 @@ import tempfile
 import time
 import tomllib
 import sys
+import json
+import re
 
 import numpy as np
 
@@ -40,9 +42,22 @@ def component_state(model, pitch, average_pitch):
     return struct.pack('<i', len(entries)) + entries
 
 
-def preset_bytes(component):
-    # Official rc.3 distribution's moduleinfo.json Audio Module Class CID.
-    uid = b'B0EABF53EAA94CC08F52C9959D91057B'
+def plugin_uid(bundle):
+    info = Path(bundle)/'Contents'/'Resources'/'moduleinfo.json'
+    if info.is_file():
+        # Steinberg's moduleinfo files may contain trailing commas.
+        metadata = json.loads(re.sub(r',\s*([}\]])', r'\1', info.read_text(encoding='utf-8-sig')))
+        for cls in metadata.get('Classes', []):
+            cid = cls.get('CID', '')
+            if cls.get('Category') == 'Audio Module Class' and re.fullmatch(r'[0-9a-fA-F]{32}', cid):
+                return cid.upper().encode('ascii')
+        raise ValueError('VSTのmoduleinfo.jsonに音声プラグインの識別子がありません。')
+    if sys.platform == 'darwin':
+        raise ValueError('Mac版VSTのmoduleinfo.jsonが見つかりません。公式ZIPをすべて展開してください。')
+    return b'B0EABF53EAA94CC08F52C9959D91057B'
+
+
+def preset_bytes(component, uid=b'B0EABF53EAA94CC08F52C9959D91057B'):
     header = b'VST3' + struct.pack('<i', 1) + uid + struct.pack('<q', 48+len(component))
     return header + component + b'List' + struct.pack('<i4sqq', 1, b'Comp', 48, len(component))
 
@@ -92,6 +107,7 @@ class BeatricePipeline:
         vst = Path(config.get('beatrice_vst', ''))
         if not model.is_file() or model.suffix.lower() != '.toml':
             raise ValueError('Beatriceモデルの.tomlを選択してください。')
+        uid = plugin_uid(vst)
         vst = vst_path(vst)
         with model.open('rb') as f:
             metadata = tomllib.load(f)
@@ -120,7 +136,7 @@ class BeatricePipeline:
             raise ValueError('公式Beatrice 2.0.0-rc.3のVST3を選択してください。')
         with tempfile.TemporaryDirectory(prefix='yvc-beatrice-') as folder:
             preset = Path(folder)/'voice.vstpreset'
-            preset.write_bytes(preset_bytes(component_state(model, pitch, average)))
+            preset.write_bytes(preset_bytes(component_state(model, pitch, average), uid))
             self.plugin.load_preset(str(preset))
         self.gain = 10**(gain/20)
         self.stats = {}
