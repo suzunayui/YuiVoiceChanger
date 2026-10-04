@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog} = require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,clipboard} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -30,6 +30,7 @@ function save(next){
 }
 function boot(){
   if(worker)return;
+  if(!config.python)return;
   if(!config.python||!fs.existsSync(config.python)){send({type:'error',message:'環境設定でPythonを指定してください。'});return;}
   const logs=path.join(HOME,'logs');fs.mkdirSync(logs,{recursive:true});
   const log=fs.createWriteStream(path.join(logs,'independent-engine.log'),{flags:'a'});
@@ -60,6 +61,22 @@ else {
   ipcMain.handle('yvc',async(event,action,payload)=>{
    if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame)throw Error('Unauthorized IPC');
    if(action==='config')return config;
+   if(action==='open-resource'){
+    const links={vst:'https://prj-beatrice.com/',models:'https://prj-beatrice.com/2.0.0-rc.0-official-model-1-terms',python:'https://www.python.org/downloads/windows/',cable:'https://vb-audio.com/Cable/'};
+    if(!Object.hasOwn(links,payload))throw Error('Unknown resource');
+    await shell.openExternal(links[payload]);return;
+   }
+   if(action==='copy-setup-command'){
+    clipboard.writeText('py -3.12 -m pip install numpy sounddevice pedalboard==0.9.25');return;
+   }
+   if(action==='pick-vst-folder'){
+    const result=await dialog.showOpenDialog(window,{title:'展開したBeatrice VSTフォルダを選択',properties:['openDirectory']});
+    if(result.canceled)return null;
+    const dir=result.filePaths[0];
+    const candidate=dir.toLowerCase().endsWith('.vst3')?dir:path.join(dir,'beatrice_2.0.0-rc.3.vst3');
+    if(!fs.existsSync(path.join(candidate,'Contents','x86_64-win',path.basename(candidate))))throw Error('展開したbeatrice_2.0.0-rc.3フォルダ、またはその中の.vst3フォルダを選択してください。');
+    return candidate;
+   }
    if(action==='save')return save(payload);
    if(action==='export-settings'){
     const result=await dialog.showSaveDialog(window,{defaultPath:'YuiVoiceChanger-settings.json',filters:[{name:'YuiVoiceChanger 設定',extensions:['json']}]});

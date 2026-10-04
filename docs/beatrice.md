@@ -1,5 +1,20 @@
 # Beatriceの設定
 
+アプリの「はじめての設定」に、ダウンロード先と準備手順があります。
+未設定の初回起動では、このガイドが自動で表示されます。
+公式VSTはダウンロード後、ZIPをすべて展開してください。
+「展開したVSTフォルダを選ぶ」で、展開先のbeatrice_2.0.0-rc.3フォルダを指定できます。
+
+Pythonを新しく用意する場合はWindows用Python 3.12（64bit）を使い、PowerShellで以下を実行します。
+
+```powershell
+py -3.12 -m pip install numpy sounddevice pedalboard==0.9.25
+py -3.12 -c "import sys; print(sys.executable)"
+```
+
+2行目に表示されたpython.exeを環境設定で指定し、アプリを再起動してください。
+通話用途ではVB-CABLE等を別途準備し、アプリの出力をCABLE Input、通話アプリのマイクをCABLE Outputに指定します。
+
 公式Beatrice 2.0.0-rc.3 VST3を外部プラグインとしてホストします。
 対応モデルは2.0.0-rc.0形式、声IDは0です。
 

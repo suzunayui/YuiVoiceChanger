@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
  const app=await electron.launch({args:[path.resolve(__dirname,'..')],env:{...process.env,YVC_DESKTOP_HOME:home}});
  try{
   const page=await app.firstWindow();
-  await page.getByRole('heading',{name:'声に、もうひとつの表情を。'}).waitFor();
+  await page.getByRole('button',{name:'◉ 声を変える'}).click();await page.getByRole('heading',{name:'声に、もうひとつの表情を。'}).waitFor();
   assert.equal(await page.getByRole('button',{name:'▶ 声変換をはじめる'}).isDisabled(),true);
   assert.equal(await page.getByLabel('変換エンジン').count(),0);
   assert.equal(await page.getByText('GPU',{exact:false}).count(),0);

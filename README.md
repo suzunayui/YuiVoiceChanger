@@ -34,6 +34,7 @@ python tests/run.py
 npm run build
 npm run test:ui
 node tests/settings-transfer.cjs
+node tests/onboarding.cjs
 npm run dist
 ```
 
