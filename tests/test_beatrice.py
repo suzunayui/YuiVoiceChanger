@@ -31,3 +31,23 @@ class BeatriceTests(unittest.TestCase):
         self.assertFalse(p.plugin.call[2]['reset'])
         np.testing.assert_allclose(result, .02)
         self.assertTrue(p.stats['silent'])
+
+    def test_clarity_precedes_gate_and_output_clipping(self):
+        class Plugin:
+            def process(self, audio, rate, **kwargs):
+                return np.full_like(audio, .4)
+        class EQ:
+            def process(self, audio, rate, **kwargs):
+                self.reset_requested = kwargs['reset']
+                return audio * 2
+        class Gate:
+            def process(self, output, source):
+                np.testing.assert_allclose(output, .8)
+                return output * .5
+        p = BeatricePipeline.__new__(BeatricePipeline)
+        p.plugin, p.clarity, p.envelope = Plugin(), EQ(), Gate()
+        p.noise_filter, p.gain = True, 3
+        result = p.convert(np.zeros(480, np.float32))
+        self.assertFalse(p.clarity.reset_requested)
+        self.assertEqual(p.stats['clip'], 1)
+        np.testing.assert_allclose(result, 1)

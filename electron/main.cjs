@@ -14,7 +14,7 @@ const CONFIG = path.join(HOME,'desktop.json');
 let window, worker, quitting=false;
 function read(file,fallback={}) {try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return fallback;}}
 function initialConfig(){
- return {beatrice_model:'',beatrice_vst:'',beatrice_pitch:12,beatrice_block:.04,beatrice_noise_filter:true,beatrice_gate:-50,python:'',beatrice_libs:'',input:-1,output:-1,input_name:'',output_name:'',gain:0};
+ return {beatrice_model:'',beatrice_vst:'',beatrice_pitch:12,beatrice_block:.04,beatrice_noise_filter:true,beatrice_gate:-50,beatrice_clarity:false,python:'',beatrice_libs:'',input:-1,output:-1,input_name:'',output_name:'',gain:0};
 }
 const saved=read(!process.env.YVC_DESKTOP_HOME&&!fs.existsSync(CONFIG)?LEGACY_CONFIG:CONFIG);
 let config=Object.fromEntries(Object.entries(initialConfig()).map(([key,value])=>[key,saved[key]??value]));

@@ -114,10 +114,19 @@ class BeatricePipeline:
         self.stats = {}
         self.envelope = SilenceEnvelope(float(config.get("beatrice_gate", -50)))
         self.noise_filter = config.get("beatrice_noise_filter", True)
+        self.clarity = None
+        if config.get('beatrice_clarity', False):
+            from pedalboard import Pedalboard, PeakFilter, HighShelfFilter
+            self.clarity = Pedalboard([
+                PeakFilter(cutoff_frequency_hz=350, gain_db=-2, q=.7),
+                HighShelfFilter(cutoff_frequency_hz=3500, gain_db=2, q=.707),
+            ])
 
     def reset(self):
         self.plugin.reset()
         self.envelope.reset()
+        if self.clarity is not None:
+            self.clarity.reset()
 
     def convert(self, audio, silence=True):
         started = time.perf_counter()
@@ -129,6 +138,8 @@ class BeatricePipeline:
             result = result.mean(axis=0)
         if not np.isfinite(result).all():
             raise RuntimeError('Beatriceの出力に非有限値があります。')
+        if getattr(self, 'clarity', None) is not None:
+            result = self.clarity.process(result[None], self.rate, buffer_size=480, reset=False)[0]
         if getattr(self, "noise_filter", False):
             result = self.envelope.process(result, audio)
         result *= self.gain
