@@ -47,6 +47,26 @@ def devices():
             for i,d in enumerate(sd.query_devices())]
 
 
+def audio_settings(sd, input_id, output_id, output_channels, rate=48000):
+    """Keep inference at 48k; let shared WASAPI adapt each device's mix format."""
+    hosts = sd.query_hostapis()
+    extra = tuple(sd.WasapiSettings(exclusive=False, auto_convert=True)
+                  if hosts[sd.query_devices(device)['hostapi']]['name'] == 'Windows WASAPI'
+                  else None for device in (input_id, output_id))
+    for label, device, channels, settings, check in (
+        ('マイク', input_id, 1, extra[0], sd.check_input_settings),
+        ('出力先', output_id, output_channels, extra[1], sd.check_output_settings),
+    ):
+        try:
+            check(device=device, channels=channels, samplerate=rate,
+                  dtype='float32', extra_settings=settings)
+        except sd.PortAudioError as exc:
+            name = sd.query_devices(device)['name']
+            raise RuntimeError(f'{label}「{name}」を開けませんでした。'
+                               f'別のデバイスを選ぶか、Windowsの音声設定を確認してください。({exc})') from exc
+    return extra
+
+
 class Realtime:
     def __init__(self, notify):
         self.notify = notify
@@ -96,8 +116,7 @@ class Realtime:
             pipeline.reset()
             input_id, output_id = int(config['input']), int(config['output'])
             output_channels = min(2, sd.query_devices(output_id)['max_output_channels'])
-            sd.check_input_settings(device=input_id, channels=1, samplerate=48000, dtype='float32')
-            sd.check_output_settings(device=output_id, channels=output_channels, samplerate=48000, dtype='float32')
+            extra_settings = audio_settings(sd, input_id, output_id, output_channels)
 
             def callback(indata, outdata, frames, timing, status):
                 nonlocal cursor, sequence, warmed
@@ -127,7 +146,8 @@ class Realtime:
                         cursor = 0
 
             stream = sd.Stream(device=(input_id,output_id), samplerate=48000, blocksize=480,
-                               channels=(1,output_channels), dtype='float32', latency='low', callback=callback)
+                               channels=(1,output_channels), dtype='float32', latency='low',
+                               extra_settings=extra_settings, callback=callback)
             if self.stop_event.is_set():
                 return
             stream.start()
