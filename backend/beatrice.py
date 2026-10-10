@@ -32,11 +32,11 @@ def vst_path(vst, platform=None):
     return vst
 
 
-def component_state(model, pitch, average_pitch):
+def component_state(model, pitch, average_pitch, formant=0.):
     path = str(Path(model).resolve()).encode('utf-8')
     entries = struct.pack('<hii', 1, 2, len(path)) + path
     entries += struct.pack('<hii', 2, 0, 0)  # Voice 0
-    for key, value in ((3, 0.), (4, pitch), (5, average_pitch-pitch),
+    for key, value in ((3, formant), (4, pitch), (5, average_pitch+formant-pitch),
                        (7, 0.), (8, 0.), (9, 1.), (10, 0.), (100, average_pitch)):
         entries += struct.pack('<hid', key, 1, value)
     return struct.pack('<i', len(entries)) + entries
@@ -118,6 +118,9 @@ class BeatricePipeline:
             if not (model.parent/name).is_file():
                 raise ValueError(f'Beatriceモデルの隣に{name}が必要です。')
         pitch = float(config.get('beatrice_pitch', 12))
+        formant = float(config.get('beatrice_formant', 0))
+        if not math.isfinite(formant) or not -2 <= formant <= 2:
+            raise ValueError('声の響きは-2〜2半音です。')
         gain = float(config.get('gain', 0))
         if not math.isfinite(pitch) or not -24 <= pitch <= 24:
             raise ValueError('Beatriceの音高は-24〜24半音です。')
@@ -136,8 +139,12 @@ class BeatricePipeline:
             raise ValueError('公式Beatrice 2.0.0-rc.3のVST3を選択してください。')
         with tempfile.TemporaryDirectory(prefix='yvc-beatrice-') as folder:
             preset = Path(folder)/'voice.vstpreset'
-            preset.write_bytes(preset_bytes(component_state(model, pitch, average), uid))
+            preset.write_bytes(preset_bytes(component_state(model, pitch, average, formant), uid))
             self.plugin.load_preset(str(preset))
+        # Explicit host parameters keep the controller and processor in sync.
+        self.plugin.formant_shift_st = formant
+        self.plugin.pitch_shift_st = pitch
+        self.plugin.average_source_pitch = average+formant-pitch
         self.gain = 10**(gain/20)
         self.stats = {}
         self.envelope = SilenceEnvelope(float(config.get("beatrice_gate", -50)))

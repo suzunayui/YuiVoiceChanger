@@ -21,7 +21,7 @@ function vstBundle(dir){
 let window, worker, quitting=false, settingUp=false;
 function read(file,fallback={}) {try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return fallback;}}
 function initialConfig(){
- return {beatrice_model:'',beatrice_vst:'',beatrice_pitch:12,beatrice_block:.04,beatrice_noise_filter:true,beatrice_gate:-50,beatrice_clarity:false,python:'',beatrice_libs:'',input:-1,output:-1,input_name:'',output_name:'',gain:0};
+ return {beatrice_model:'',beatrice_vst:'',beatrice_pitch:12,beatrice_formant:0,beatrice_block:.04,beatrice_noise_filter:true,beatrice_gate:-50,beatrice_clarity:false,python:'',beatrice_libs:'',input:-1,output:-1,input_name:'',output_name:'',gain:0};
 }
 const saved=read(!process.env.YVC_DESKTOP_HOME&&!fs.existsSync(CONFIG)?LEGACY_CONFIG:CONFIG);
 let config=Object.fromEntries(Object.entries(initialConfig()).map(([key,value])=>[key,saved[key]??value]));
@@ -113,7 +113,7 @@ else {
     const value=JSON.parse(fs.readFileSync(result.filePaths[0],'utf8').replace(/^\uFEFF/,''));
     if(!value||typeof value!=='object'||Array.isArray(value))throw Error('設定ファイルの形式が正しくありません。');
     const clean={};const defaults=initialConfig();
-    const ranges={beatrice_pitch:[-24,24],beatrice_gate:[-70,-30],gain:[-24,30],input:[-1,65535],output:[-1,65535]};
+    const ranges={beatrice_pitch:[-24,24],beatrice_formant:[-2,2],beatrice_gate:[-70,-30],gain:[-24,30],input:[-1,65535],output:[-1,65535]};
     for(const key of Object.keys(defaults))if(Object.hasOwn(value,key)){
      const v=value[key];if(typeof v!==typeof defaults[key]||(typeof v==='number'&&!Number.isFinite(v)))throw Error(`設定値が正しくありません: ${key}`);
      if(ranges[key]&&(v<ranges[key][0]||v>ranges[key][1]))throw Error(`設定値が範囲外です: ${key}`);
