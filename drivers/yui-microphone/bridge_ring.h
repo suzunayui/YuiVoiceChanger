@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: MIT
 #pragma once
+#if defined(_KERNEL_MODE)
+// WDK headers already provide size_t; avoid mixing kernel and user CRT headers.
+typedef short int16_t;
+typedef int int32_t;
+typedef unsigned __int64 uint64_t;
+#else
 #include <stdint.h>
 #include <stddef.h>
+#endif
 // Caller serializes all operations. 40 ms at 48 kHz, mono PCM16.
 struct YuiAudioRing {
     static constexpr size_t Capacity = 1920;

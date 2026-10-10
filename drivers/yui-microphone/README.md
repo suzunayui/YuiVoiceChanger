@@ -1,6 +1,6 @@
 # Yui Microphone — Windows 試作
 
-状態: **ソース試作。SYSドライバーは未ビルド・未署名・未インストール。Windowsのマイクとしてはまだ使えません。** アプリの既存のVB-Cable経路は変更していません。
+状態: **x64 ReleaseのSYSドライバーとINFをビルド済み。配布署名・インストール・実機検証は未完了。Windowsのマイクとしてはまだ使えません。** アプリの既存のVB-Cable経路は変更していません。
 
 目標の経路:
 
@@ -28,7 +28,7 @@ powershell -NoProfile -File drivers/yui-microphone/test.ps1
 
 ## ドライバービルド
 
-MicrosoftのWindows SDK/WDKおよび対応するVisual Studio C++ツールセットを用意します。現在のPCはSDK/MSVCのみで、WDKツールセットがありません。
+MicrosoftのWindows SDK/WDKおよび対応するVisual Studio C++ツールセットを用意します。Visual Studio 2026、SDK/WDK 10.0.28000.0で警告0・エラー0のビルドを確認しました。64ビットMSBuildを使い、UTF-8を明示します。
 
 [WDK導入資料](https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk)
 

@@ -59,10 +59,11 @@ def stream(s):
  return s
 edit('EndpointsCommon/minwavertstream.cpp',stream)
 edit('adapter.cpp',lambda s:'#include "bridge_kernel.h"\n'+exact(s,'    DPF(D_TERSE, ("[DriverEntry]"));','    YuiBridgeInitialize();\n    DPF(D_TERSE, ("[DriverEntry]"));'))
-# No Bluetooth/USB bypass or dynamic endpoints in this single-adapter prototype.
+# Keep upstream sideband declarations: shared audio-engine code depends on them.
 for name in ['TabletAudioSample/TabletAudioSample.vcxproj','EndpointsCommon/EndpointsCommon.vcxproj']:
- edit(name,lambda s:s.replace(';SYSVAD_BTH_BYPASS','').replace(';SYSVAD_USB_SIDEBAND',''))
-project=dest/'TabletAudioSample/TabletAudioSample.vcxproj';s=project.read_text();s=s.replace('<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props" />','<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props" />\n<PropertyGroup><TargetName>YuiMicrophone</TargetName></PropertyGroup>');project.write_text(s)
+ edit(name,lambda s:s.replace('<ClCompile>','<ClCompile><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>'))
+edit('adapter.cpp',lambda s:s.replace('pAdapterCommon->InitBthScoBypass()','STATUS_SUCCESS').replace('pAdapterCommon->InitUsbSideband()','STATUS_SUCCESS'))
+project=dest/'TabletAudioSample/TabletAudioSample.vcxproj';s=project.read_text(encoding='utf-8-sig').replace('<TargetName>TabletAudioSample</TargetName>','<TargetName>YuiMicrophone</TargetName>');s=s.replace('<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props" />','<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props" />\n<PropertyGroup><TargetName>YuiMicrophone</TargetName></PropertyGroup>');project.write_text(s,encoding='utf8')
 original=(dest/'TabletAudioSample/ComponentizedAudioSample.inx').read_text(encoding='utf-16')
 sections=dict(re.findall(r'^\[([^\]]+)\]\s*\n(.*?)(?=^\[|\Z)',original,flags=re.M|re.S))
 strings=sections['Strings']

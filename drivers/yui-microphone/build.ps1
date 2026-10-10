@@ -4,7 +4,7 @@ $repo=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $vs=& $vswhere -latest -products '*' -requires Microsoft.Component.MSBuild -property installationPath
 if(!$vs){throw 'Visual Studio C++ と WDK が必要です。'}
-$msbuild=Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe'
+$msbuild=Join-Path $vs 'MSBuild/Current/Bin/amd64/MSBuild.exe'
 $toolsets=Get-ChildItem (Join-Path $vs 'MSBuild/Microsoft/VC') -Filter WindowsKernelModeDriver10.0 -Directory -Recurse -ErrorAction SilentlyContinue
 if(!$toolsets){throw 'WDK の WindowsKernelModeDriver10.0 ツールセットがありません。ドライバーはまだビルドできません。署名済みドライバーのインストールや起動設定の変更は行いません。'}
 $folder=Join-Path $repo ('.local/yui-driver-'+[guid]::NewGuid().ToString('N'))

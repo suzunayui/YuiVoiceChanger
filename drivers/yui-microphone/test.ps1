@@ -5,7 +5,8 @@ $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.
 if(!$vs){throw 'MSVC C++ tools not found'}
 $vc=(Get-ChildItem (Join-Path $vs 'VC/Tools/MSVC') -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
 $kits=Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10'
-$sdk=(Get-ChildItem (Join-Path $kits 'Include') -Directory | Sort-Object Name -Descending | Select-Object -First 1).Name
+$sdk=(Get-ChildItem (Join-Path $kits 'Include') -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'ucrt/stddef.h') } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).Name
+if(!$sdk){throw 'Windows SDK UCRT headers not found'}
 $oldInclude=$env:INCLUDE;$oldLib=$env:LIB
 try {
  $env:INCLUDE="$vc/include;$kits/Include/$sdk/ucrt;$kits/Include/$sdk/shared;$kits/Include/$sdk/um"
