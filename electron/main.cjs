@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,shell,safeStorage} = require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,safeStorage,systemPreferences} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -91,6 +91,8 @@ function save(next,{preset=false,obsSyncPreparation=false}={}){
 }
 async function startPresetEngine(signal,label='プリセットの切り替え'){
  if(signal.aborted||quitting)throw Error(`${label}を中止しました。`);
+ await microphonePermission();
+ if(signal.aborted||quitting)throw Error(`${label}を中止しました。`);
  send({type:'state',state:'loading'});await boot();
  if(signal.aborted||quitting)throw Error(`${label}を中止しました。`);
  await new Promise((resolve,reject)=>{
@@ -165,6 +167,9 @@ async function stopWorker(){
  });
  workerStops.set(child,pending);try{await pending;}finally{workerStops.delete(child);}
 }
+async function microphonePermission(){
+ if(process.platform==='darwin'&&systemPreferences.getMediaAccessStatus('microphone')!=='granted'&&!await systemPreferences.askForMediaAccess('microphone'))throw Error('システム設定の「プライバシーとセキュリティ → マイク」でYuiVoiceChangerを許可してください。');
+}
 async function boot(){
  if(connecting)return connecting;
  if(worker&&workerPython===config.python)return;
@@ -231,7 +236,7 @@ else {
    if(action==='obs-sync-cancel')return obsSync.cancel();
    if(action==='obs-sync-recover')return obsSync.recover();
    if(action==='obs-sync-pick-ffmpeg'){
-    const picked=await dialog.showOpenDialog(window,{properties:['openFile'],filters:[{name:'ffmpeg.exe',extensions:['exe']}]});
+    const picked=await dialog.showOpenDialog(window,{properties:['openFile'],filters:process.platform==='darwin'?undefined:[{name:'ffmpeg.exe',extensions:['exe']}]});
     return picked.canceled?obsSync.info():obsSync.setFfmpeg(picked.filePaths[0]);
    }
    if(action==='presets')return presets.list(config);
@@ -244,6 +249,7 @@ else {
    if(action==='latency-calibration-status')return calibration.status();
    if(action==='latency-calibration-start'){
     if(settingUp||training.busy||engineState!=='stopped'||calibration.busy)throw Error('変換・セットアップ・学習を停止してから自動設定してください。');
+    await microphonePermission();
     save(payload);return calibration.start(config);
    }
    if(action==='latency-calibration-cancel')return calibration.cancel();
@@ -408,7 +414,7 @@ else {
      const result=await dialog.showOpenDialog(window,{defaultPath:pickerDirectory(config.training_audio),properties:['openDirectory']});return result.canceled?null:result.filePaths[0];
     }
     if(!['python','beatrice_model','training_source'].includes(payload))throw Error('Invalid selection');
-    const result=await dialog.showOpenDialog(window,{defaultPath:pickerDirectory(config[payload]),properties:['openFile'],filters:[{name:payload==='python'?'Python':'音声モデル',extensions:payload==='python'?['exe']:['gz','pt','toml','bin','pth','onnx']}]});
+    const result=await dialog.showOpenDialog(window,{defaultPath:pickerDirectory(config[payload]),properties:['openFile'],filters:payload==='python'&&process.platform==='darwin'?undefined:[{name:payload==='python'?'Python':'音声モデル',extensions:payload==='python'?['exe']:['gz','pt','toml','bin','pth','onnx']}]});
     return result.canceled?null:result.filePaths[0];
    }
    if(action==='devices'||action==='connect'){
@@ -422,6 +428,8 @@ else {
     const token=++startToken;
     send({type:'state',state:'loading'});
     try{
+     await microphonePermission();
+     if(token!==startToken||quitting)return;
      await boot();
      if(token!==startToken||quitting)return;
      request('start',{config});return;

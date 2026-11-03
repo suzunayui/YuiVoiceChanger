@@ -26,6 +26,7 @@ function validInstallation(folder){
 }
 function quote(value){return "'"+value.replace(/'/g,"''")+"'";}
 async function extract(archive,destination){
+ if(process.platform==='darwin'){await run('/usr/bin/ditto',['-x','-k',archive,destination]);return;}
  const script=[
   "$ErrorActionPreference='Stop'",
   'Add-Type -AssemblyName System.IO.Compression.FileSystem',
@@ -43,7 +44,7 @@ async function extract(archive,destination){
 }
 async function installOfficial(home,{agreed,signal,progress=()=>{}}={}){
  if(agreed!==true)throw Error('公式モデルの利用規約への同意が必要です。');
- if(process.platform!=='win32')throw Error('モデルの自動導入はWindows用です。');
+ if(!['win32','darwin'].includes(process.platform))throw Error('WindowsまたはMacで導入してください。');
  const root=path.resolve(home,'models');
  const target=path.join(root,'beatrice-official-model-1-rc0');
  const receipt={source:DOWNLOAD_URL,archive_sha256:ARCHIVE_SHA,terms_url:TERMS_URL,

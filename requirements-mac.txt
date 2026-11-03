@@ -1,0 +1,21 @@
+# Apple Silicon macOS 14+ / CPython 3.15.2 / CPU inference.
+numpy==2.5.4
+sounddevice==0.5.6
+soundfile==0.14.0
+torchaudio==2.11.1
+certifi==2026.10.23
+cffi==2.1.1
+filelock==4.2.7
+fsspec==2026.9.0
+jinja2==3.1.6
+markupsafe==3.0.4
+mpmath==1.3.0
+networkx==3.7
+pycparser==3.12
+sympy==1.14.0
+setuptools==84.2.1
+onnx==1.23.2
+ml-dtypes==0.6.0
+protobuf==7.36.2
+typing-extensions==4.16.0
+torch @ https://files.pythonhosted.org/packages/99/34/c7ff06165cb09238e945aa2ae63b9186583a47a9880aacd349d37e521f08/torch-2.15.0-cp315-cp315-macosx_14_0_arm64.whl#sha256=06a686eb717cd3d1662363082820be45497318887c596d691af0af0c7649c8f0

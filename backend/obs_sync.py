@@ -116,8 +116,10 @@ def decode(ffmpeg, recording, index):
 def play(config, emit, cancel):
     if cancel.is_set(): raise InterruptedError('測定を中止しました。')
     import sounddevice as sd
-    hosts=sd.query_hostapis();host=next((i for i,h in enumerate(hosts) if h['name']=='Windows WASAPI'),None)
-    if host is None: raise ValueError('WASAPIの再生先を確認できませんでした。')
+    hosts=sd.query_hostapis()
+    host_name='Core Audio' if any(h['name']=='Core Audio' for h in hosts) else 'Windows WASAPI'
+    host=next((i for i,h in enumerate(hosts) if h['name']==host_name),None)
+    if host is None: raise ValueError(f'{host_name}の再生先を確認できませんでした。')
     name=config.get('device_name','')
     options=[i for i,d in enumerate(sd.query_devices()) if d['hostapi']==host and d['max_output_channels']>0 and (d['name']==name if name else i==hosts[host]['default_output_device'])]
     if len(options)!=1: raise ValueError('伴奏ソースと同じ音声再生先が見つかりません。OBSのデスクトップ音声のデバイスを確認してください。')
@@ -144,7 +146,7 @@ def play(config, emit, cancel):
         cursor+=count
         if cursor>=len(signal):done.set()
     try:
-        settings=sd.WasapiSettings(exclusive=False,auto_convert=True)
+        settings=sd.CoreAudioSettings(change_device_parameters=False,fail_if_conversion_required=False,conversion_quality='max') if host_name=='Core Audio' else sd.WasapiSettings(exclusive=False,auto_convert=True)
         stream=sd.Stream(device=(microphones[0],options[0]),samplerate=rate,channels=(1,channels),dtype='float32',blocksize=480,latency='low',extra_settings=(settings,settings),callback=callback)
         fallback=-round(sum(stream.latency)*rate)
         stream.start();last=-1;deadline=time.monotonic()+20

@@ -9,6 +9,8 @@ const {engineRoot}=require('./paths.cjs');
 const PYTHON='3.15.2';
 const UV_URL='https://github.com/astral-sh/uv/releases/download/0.13.6/uv-x86_64-pc-windows-msvc.zip';
 const UV_SHA='a2a8820d5eea32f08ef467ef3b7f66883a9b076d5737a2fc2fbb5f458d1bb50f';
+const MAC_UV_URL='https://github.com/astral-sh/uv/releases/download/0.13.6/uv-aarch64-apple-darwin.tar.gz';
+const MAC_UV_SHA='60fbd5c8a1ed681845eea28d9d622fcde03c51e91a43465b64a1e17db1ed3472';
 function run(exe,args,{env={},timeout=120000,progress}={}){
  return new Promise((resolve,reject)=>{
   const p=spawn(exe,args,{cwd:os.tmpdir(),windowsHide:true,env:{...process.env,...env},stdio:['ignore','pipe','pipe']});
@@ -42,45 +44,49 @@ async function validate(python){
  return info;
 }
 async function setup(home,progress){
- if(process.platform!=='win32'||process.arch!=='x64')throw Error('自動セットアップはWindows x64用です。');
+ const mac=process.platform==='darwin'&&process.arch==='arm64';
+ if(!mac&&(process.platform!=='win32'||process.arch!=='x64'))throw Error('Windows x64またはApple Silicon Macを使用してください。');
  const root=path.join(home,'runtime');fs.mkdirSync(root,{recursive:true});
  const active=path.join(root,'direct-gpu-runtime.json');
  try{
   const previous=JSON.parse(fs.readFileSync(active,'utf8'));
   if(previous.revision===2){
    const info=await validate(previous.python);
-   const driver=fs.existsSync(path.join(process.env.WINDIR||'C:\\Windows','System32','nvcuda.dll'));
+   const driver=!mac&&fs.existsSync(path.join(process.env.WINDIR||'C:\\Windows','System32','nvcuda.dll'));
    if(driver&&!info.cuda)throw Error('GPU用環境へ更新します。');
    progress('既存のPython 3.15変換環境を確認しました。');return {python:previous.python};
   }
  }catch{}
  const dir=path.join(root,`direct-gpu-${crypto.randomUUID()}`);fs.mkdirSync(dir,{recursive:true});
  progress('セットアップ用ツールをダウンロードしています…');
- const archive=path.join(dir,'uv.zip');await download(UV_URL,archive,UV_SHA);
+ const archive=path.join(dir,mac?'uv.tar.gz':'uv.zip');await download(mac?MAC_UV_URL:UV_URL,archive,mac?MAC_UV_SHA:UV_SHA);
  const quote=s=>"'"+s.replace(/'/g,"''")+"'";
- await run('powershell.exe',['-NoProfile','-NonInteractive','-Command',`$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(dir)} -Force`]);
+ if(mac)await run('/usr/bin/tar',['-xzf',archive,'-C',dir,'--strip-components=1']);
+ else await run('powershell.exe',['-NoProfile','-NonInteractive','-Command',`$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(dir)} -Force`]);
  fs.unlinkSync(archive);
- const uv=path.join(dir,'uv.exe');
+ const uv=path.join(dir,mac?'uv':'uv.exe');
+ if(mac)fs.chmodSync(uv,0o700);
  const install=path.join(root,'python');
  const env={UV_PYTHON_INSTALL_DIR:install,UV_CACHE_DIR:path.join(root,'uv-cache'),UV_NO_PROGRESS:'1',UV_PYTHON_DOWNLOADS:'manual'};
  progress(`Python ${PYTHON}を準備しています…`);
- await run(uv,['python','install',PYTHON,'--no-bin','--no-registry'],{env,timeout:300000,progress});
- const base=path.join(install,`cpython-${PYTHON}-windows-x86_64-none`,'python.exe');
+ await run(uv,['python','install',PYTHON,'--no-bin',...(!mac?['--no-registry']:[])],{env,timeout:300000,progress});
+ const base=mac?(await run(uv,['python','find','--managed-python',PYTHON],{env})).trim().split(/\r?\n/).at(-1):path.join(install,`cpython-${PYTHON}-windows-x86_64-none`,'python.exe');
  const venv=path.join(dir,'venv');
  await run(uv,['venv','--python',base,venv],{env});
- const python=path.join(venv,'Scripts','python.exe');
- const useGpu=fs.existsSync(path.join(process.env.WINDIR||'C:\\Windows','System32','nvcuda.dll'));
+ const python=path.join(venv,mac?'bin':'Scripts',mac?'python':'python.exe');
+ const useGpu=!mac&&fs.existsSync(path.join(process.env.WINDIR||'C:\\Windows','System32','nvcuda.dll'));
  progress(useGpu?'GPU用PyTorchと音声ライブラリを準備しています（数GBのダウンロード）…':'CPU用PyTorchと音声ライブラリを準備しています…');
- const bundled=path.join(backendRoot(),'requirements.txt');
- let requirements=fs.existsSync(bundled)?bundled:path.join(backendRoot(),'..','requirements.txt');
- if(!useGpu){
+ const requirementsName=mac?'requirements-mac.txt':'requirements.txt';
+ const bundled=path.join(backendRoot(),requirementsName);
+ let requirements=fs.existsSync(bundled)?bundled:path.join(backendRoot(),'..',requirementsName);
+ if(!mac&&!useGpu){
   const content=fs.readFileSync(requirements,'utf8').replace(/^torch @ .*$/m,'torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp315-cp315-win_amd64.whl#sha256=5c21ee962b6f67821dac0bc882f5ee1539a4edeabe736284d2ff1d652e595ed1');
   requirements=path.join(dir,'requirements-cpu.txt');fs.writeFileSync(requirements,content);
  }
  await run(uv,['pip','install','--python',python,'--only-binary',':all:','-r',requirements],{env,timeout:1800000,progress});
  progress('Python・GPU・音声デバイスの動作を確認しています…');
  const info=await validate(python);
- fs.writeFileSync(active,JSON.stringify({...info,python_version:info.python,revision:2,python},null,2));
+ fs.writeFileSync(active,JSON.stringify({...info,python_version:info.python,revision:2,python,platform:process.platform,arch:process.arch},null,2));
  return {python};
 }
-module.exports={setup,run,download,validate,PYTHON,UV_URL,UV_SHA};
+module.exports={setup,run,download,validate,PYTHON,UV_URL,UV_SHA,MAC_UV_URL,MAC_UV_SHA};

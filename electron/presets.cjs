@@ -56,7 +56,8 @@ class Presets{
    if(!exists)throw Error('プリセットのモデルファイルが見つかりません。モデルの保存先を確認してください。');
   }
   if(Array.isArray(devices))for(const [key,name,channel,label] of [['input','input_name','inputs','マイク'],['output','output_name','outputs','出力先']]){
-   const match=devices.find(device=>device.host==='Windows WASAPI'&&device[channel]>0&&(settings[name]?device.name===settings[name]:device.id===settings[key]));
+   const host=devices.some(device=>device.host==='Core Audio')?'Core Audio':'Windows WASAPI';
+   const match=devices.find(device=>device.host===host&&device[channel]>0&&(settings[name]?device.name===settings[name]:device.id===settings[key]));
    if(!match&&(settings[name]||settings[key]!==-1))throw Error(`プリセットの${label}が見つかりません。デバイスを接続して音声デバイス一覧を更新してください。`);
    settings[key]=match?match.id:-1;if(match)settings[name]=match.name;
   }

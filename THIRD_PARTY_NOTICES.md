@@ -22,6 +22,8 @@ GPU PyTorch 2.15.0 / CUDA 13.2 is downloaded from the official PyTorch wheel hos
 TorchAudio, NumPy, python-sounddevice, SoundFile, CFFI and transitive dependencies retain their license notices in package/dist-info directories. NumPy and TorchAudio use BSD-style licenses; python-sounddevice and CFFI use MIT licenses. PortAudio has an MIT-style license.
 Exact runtime requirements are in `requirements.txt`. No Python runtime, CUDA runtime, audio libraries or learned weights are embedded in the application installer.
 
+The Apple Silicon preview uses the same uv version, verified against the upstream aarch64-apple-darwin archive SHA256. It installs CPython 3.15.2 and the macOS ARM64 CPU PyTorch wheel listed in `requirements-mac.txt`. The runtime's third-party notices stay in that isolated environment. No Apple GPU inference or RVC training support is claimed for this preview.
+
 The current runtime does not load Pedalboard, a VST plugin or the official Beatrice inference library. Exported Beatrice FP16 weights are read using the public trainer's serialization order; no proprietary inference library is extracted.
 
 ## RVC teacher and model training

@@ -17,7 +17,8 @@ type ComputeDevice={id:string;kind:string;name:string;available:boolean;reason?:
 type RecentModel={id:string;path:string;voice:number;label:string;alias:string;icon:string;available:boolean};
 declare global{interface Window{yvc:{platform:string;invoke:(action:string,payload?:unknown)=>Promise<any>;subscribe:(callback:(event:any)=>void)=>()=>void}}}
 const empty:Config={...effectDefaults,...obsDefaults,singing_enabled:false,singing_latency_ms:400,engine_version:2,beatrice_model:'',beatrice_voice:0,beatrice_model_alias:'',beatrice_model_icon:'',beatrice_pitch:14,beatrice_formant:0,beatrice_block:.08,schedule_ms:160,input_gain:12,gain:0,python:'',input:-1,output:-1,input_name:'',output_name:'',compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000};
-const supported=window.yvc.platform==='win32';
+const supported=['win32','darwin'].includes(window.yvc.platform);
+const audioHost=window.yvc.platform==='darwin'?'Core Audio':'Windows WASAPI';
 const basename=(value:string)=>value.split(/[\\/]/).pop()||'モデル未選択';
 const samePath=(a:string,b:string)=>a.replace(/\\/g,'/').toLowerCase()===b.replace(/\\/g,'/').toLowerCase();
 
@@ -56,7 +57,7 @@ function App(){
   setConfig(prev=>{
    const next={...prev};
    for(const [key,name,channel] of [['input','input_name','inputs'],['output','output_name','outputs']] as const){
-    const d=devices.find(x=>x[channel]>0&&x.host==='Windows WASAPI'&&(prev[name]?x.name===prev[name]:x.id===prev[key]));
+    const d=devices.find(x=>x[channel]>0&&x.host===audioHost&&(prev[name]?x.name===prev[name]:x.id===prev[key]));
     next[key]=d?d.id:-1;if(d)next[name]=d.name;
    }
    return next;
@@ -173,7 +174,7 @@ function App(){
  const selectedRecentModel=modelHistory.find(item=>item.id===selectedModelId)||currentRecentModel;
  const modelLabel=config.beatrice_model_alias||basename(model);
  const iconData=iconImages[config.beatrice_model_icon]||'';
- const options=(channel:'inputs'|'outputs')=>devices.filter(d=>d[channel]>0&&d.host==='Windows WASAPI');
+ const options=(channel:'inputs'|'outputs')=>devices.filter(d=>d[channel]>0&&d.host===audioHost);
  const cpuDevice=computeDevices.find(device=>device.id==='cpu');
  const recommendedDevice=computeDevices.find(device=>device.id==='cuda:0'&&device.available)||cpuDevice;
  const selectedComputeDevice=config.compute==='auto'?recommendedDevice:computeDevices.find(device=>device.id===(config.compute==='cuda'?'cuda:0':config.compute));
@@ -193,7 +194,7 @@ function App(){
   <main>
    {tab!=='voice'&&<header><h1>{tab==='help'?'使い方':tab==='training'?'モデルを追加':tab==='singing'?'歌枠用設定':'環境設定'}</h1></header>}
    {error&&<div className="error" role="alert">{error}<button aria-label="エラーを閉じる" onClick={()=>setError('')}>×</button></div>}
-   {!supported&&<div className="error">この版はWindows x64用です。</div>}
+   {!supported&&<div className="error">Windows x64またはApple Silicon Macを使用してください。</div>}
    {tab==='singing'&&<SingingSettings config={config} active={active} effectsDisabled={adjustmentsDisabled} running={state==='running'} metrics={metrics} calibration={calibration} onCalibration={setCalibration} onUpdate={patch=>setConfig(prev=>({...prev,...patch}))}/>}
    {tab==='help'?<Help/>:tab==='training'?<ModelTraining config={config} active={active} job={job} onPick={pick} onUpdate={update} onJob={setJob} onConfig={c=>{setConfig(c);setTab('voice');setMessage('学習モデルを選択しました。開始して試聴してください。');}} onError={setError}/>:tab==='voice'?<>
     <div className="voice-grid">

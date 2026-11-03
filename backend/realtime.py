@@ -70,16 +70,17 @@ def audio_settings(sd, input_id, output_id, output_channels, rate=48000):
                   dtype='float32', extra_settings=settings)
         except sd.PortAudioError as exc:
             name = sd.query_devices(device)['name']
-            raise RuntimeError(f'{label}「{name}」を開けませんでした。別のデバイスを選ぶか、Windowsの音声設定を確認してください。({exc})') from exc
+            raise RuntimeError(f'{label}「{name}」を開けませんでした。別のデバイスを選ぶか、OSの音声設定・マイクの許可を確認してください。({exc})') from exc
     return extra
 
 
 def resolve_devices(config, available):
-    """PortAudio IDs may change between processes; restore by WASAPI name."""
+    """Restore shared-mode WASAPI or native Core Audio devices by name."""
+    host = 'Core Audio' if any(d['host']=='Core Audio' for d in available) else 'Windows WASAPI'
     result = []
     for key, channel, label in (('input', 'inputs', 'マイク'), ('output', 'outputs', '出力先')):
         name = config.get(key+'_name', '')
-        matches = [d for d in available if d['host']=='Windows WASAPI' and d[channel]>0
+        matches = [d for d in available if d['host']==host and d[channel]>0
                    and (d['name']==name if name else d['id']==int(config[key]))]
         if len(matches)!=1:
             raise ValueError(f'{label}「{name or config[key]}」が見つかりません。デバイスを更新して選び直してください。')

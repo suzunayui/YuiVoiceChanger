@@ -36,7 +36,7 @@ export default function ObsSyncCalibration({config,inputs,connected,connectionPe
     {!connected&&<div aria-label="測定用のOBS接続"><p role="status">{connecting||connectionPending?'OBSに接続しています…':'OBSの接続設定を確認してください。'}</p>{connectionForm}</div>}
     <label className="obs-sync-source"><span>OBSで変換後の声を取り込むソース</span><select value={voice} onChange={e=>setVoice(e.target.value)}><option value="">CABLE Outputなどを取り込むソースを選択</option>{sources.map(input=><option key={key(input)} value={key(input)}>{input.inputName}</option>)}</select></label>
     <p className="hint">生声はアプリで選択中のマイクから直接取得します。</p>
-    {!info.ffmpeg&&<div><p className="hint">解析用のffmpeg.exeを指定してください。</p><button className="obs-button" onClick={()=>window.yvc.invoke('obs-sync-pick-ffmpeg').then(setInfo).catch(e=>setError(errorMessage(e)))}>ffmpeg.exeを選ぶ</button></div>}
+    {!info.ffmpeg&&<div><p className="hint">解析用のffmpegを指定してください。</p><button className="obs-button" onClick={()=>window.yvc.invoke('obs-sync-pick-ffmpeg').then(setInfo).catch(e=>setError(errorMessage(e)))}>ffmpegを選ぶ</button></div>}
    </>}
    {status.message&&<p role={status.phase==='failed'?'alert':'status'}>{status.message}</p>}
    {working&&<><progress aria-label="OBSの同期測定の進捗" max={1} value={status.progress||0}/>{status.phase==='speaking'&&<div className="obs-sync-beat">{(status.beat??0)<=0?`準備 ${Math.min(3,Math.max(1,1-(status.beat??0)))}`:(status.beat??0)<=8?`${status.beat} / 8`:'解析準備'}</div>}</>}

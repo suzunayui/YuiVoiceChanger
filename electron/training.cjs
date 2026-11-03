@@ -28,7 +28,7 @@ class TrainingManager{
  async ensureMetadata(python){
   try{await run(python,['-I','-c','import onnx']);return;}catch{}
   const manifest=JSON.parse(fs.readFileSync(path.join(this.home,'runtime','direct-gpu-runtime.json'),'utf8'));
-  const uv=path.join(path.dirname(path.dirname(path.dirname(manifest.python))),'uv.exe');
+  const uv=path.join(path.dirname(path.dirname(path.dirname(manifest.python))),process.platform==='darwin'?'uv':'uv.exe');
   await run(uv,['pip','install','--python',python,'--only-binary',':all:','onnx==1.23.2'],{timeout:300000});
  }
  async inspect(python,file){

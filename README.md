@@ -5,7 +5,7 @@ Electron / Reactの画面とPython 3.15の音声処理を組み合わせてい�
 
 ## 必要な環境
 
-- Windows x64。対応するNVIDIA GPUが使えればGPU、それ以外はCPUで動作します。
+- Windows x64、またはmacOS 14以降のApple Silicon Mac。Windowsは対応NVIDIA GPUまたはCPU、Mac試用版はCPUで変換します。[Mac版の導入](docs/mac-preview.md)。
 - Beatrice 2.0.0-rc.0形式の`.toml`と5つの`.bin`、または学習チェックポイント（`.pt.gz` / `.pt`）。声IDは0です。
 - 初回セットアップ用のネット接続と、数GB以上の空き容量。
 
@@ -172,7 +172,7 @@ python tests/gpu_inference.py --checkpoint "voice.pt.gz" --audio "original-48k.w
 実機マイクの開始・停止・再開は`node tests/desktop-audio.cjs <desktop.json>`、初回ダウンロードを含むセットアップは`node tests/runtime-setup.cjs`で明示的に実行します。
 
 `npm run dist`でWindowsインストーラーを作成します。Python、ライブラリ、学習済みの重みは同梱せず、モデル定義とそのライセンスを同梱します。
-現行版はWindows x64向けで、旧Mac試用版のビルドは停止しています。
+Apple Silicon Mac試用版はMac上で`npm run dist:mac`を実行するとDMGとZIPを作成します。GitHub Actionsの「Apple Silicon build」からもビルドできます。Mac版はCPU推論に対応し、Core Audioを使います。Apple Developer IDによる署名・公証は行っていません。
 
 ## 構成
 

@@ -13,6 +13,8 @@ class DeviceSettingsTests(unittest.TestCase):
             resolve_devices(dict(input=1,output=9,input_name='Gone',output_name='CABLE'), available)
 
     def test_core_audio_uses_conversion_without_changing_hardware_settings(self):
+        available=[dict(id=2,name='Mac microphone',host='Core Audio',inputs=1,outputs=0),dict(id=5,name='BlackHole 2ch',host='Core Audio',inputs=2,outputs=2)]
+        self.assertEqual(resolve_devices(dict(input=0,output=1,input_name='Mac microphone',output_name='BlackHole 2ch'),available),(2,5))
         sd = Mock()
         sd.query_hostapis.return_value = [{'name': 'Core Audio'}]
         sd.query_devices.return_value = {'hostapi': 0, 'name': 'Mac microphone'}

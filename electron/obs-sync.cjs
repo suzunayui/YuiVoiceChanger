@@ -10,10 +10,11 @@ class ObsSync{
  update(patch){this.state={...this.state,...patch};this.notify({type:'obs-sync',...this.status()});}
  ffmpeg(){
   let chosen='';try{chosen=JSON.parse(fs.readFileSync(this.toolsFile,'utf8')).ffmpeg;}catch{}
-  const candidates=[chosen,path.join(this.home,'tools','ffmpeg.exe'),...(process.env.PATH||'').split(path.delimiter).map(dir=>path.join(dir.replace(/^"|"$/g,''),'ffmpeg.exe'))];
+  const name=process.platform==='darwin'?'ffmpeg':'ffmpeg.exe';
+  const candidates=[chosen,path.join(this.home,'tools',name),...(process.env.PATH||'').split(path.delimiter).map(dir=>path.join(dir.replace(/^"|"$/g,''),name)),...(process.platform==='darwin'?['/opt/homebrew/bin/ffmpeg','/usr/local/bin/ffmpeg']:[])];
   return candidates.find(file=>typeof file==='string'&&file&&fs.statSync(file,{throwIfNoEntry:false})?.isFile())||'';
  }
- setFfmpeg(file){if(this.busy)throw Error('測定が終わるまでお待ちください。');if(typeof file!=='string'||path.basename(file).toLowerCase()!=='ffmpeg.exe'||!fs.statSync(file,{throwIfNoEntry:false})?.isFile())throw Error('ffmpeg.exeを選んでください。');fs.mkdirSync(this.home,{recursive:true});fs.writeFileSync(this.toolsFile,JSON.stringify({ffmpeg:file}));return this.info();}
+ setFfmpeg(file){if(this.busy)throw Error('測定が終わるまでお待ちください。');if(typeof file!=='string'||path.basename(file).toLowerCase()!==(process.platform==='darwin'?'ffmpeg':'ffmpeg.exe')||!fs.statSync(file,{throwIfNoEntry:false})?.isFile())throw Error('ffmpeg.exeを選んでください。');fs.mkdirSync(this.home,{recursive:true});fs.writeFileSync(this.toolsFile,JSON.stringify({ffmpeg:file}));return this.info();}
  info(){return {ffmpeg:!!this.ffmpeg(),recovery:fs.existsSync(this.journalFile)};}
  check(){if(this.cancelled)throw Error('測定を中止しました。');if(!this.isRunning())throw Error('声変換が停止したため測定を中止しました。');}
  async rpc(type,data={}){
@@ -116,10 +117,12 @@ class ObsSync{
   if(!music||!voice||equal(identity(music),identity(voice)))throw Error('伴奏と変換後の声は、別々のOBSソースを選んでください。');
   for(const input of [music,voice])if((await this.rpc('GetInputMute',identity(input))).inputMuted)throw Error('測定する音声ソースのミュートを解除してください。');
   const musicSettings=await this.rpc('GetInputSettings',identity(music));
-  if(!/^wasapi_output_capture/.test(musicSettings.inputKind||''))throw Error('ビープを録音する伴奏ソースには「デスクトップ音声／音声出力キャプチャ」を選んでください。');
+  const mac=process.platform==='darwin';
+  const macDesktop=mac&&((musicSettings.inputKind==='sck_audio_capture'&&(musicSettings.inputSettings?.type??0)===0)||['coreaudio_output_capture','coreaudio_input_capture'].includes(musicSettings.inputKind));
+  if(!/^wasapi_output_capture/.test(musicSettings.inputKind||'')&&!macDesktop)throw Error('ビープを録音する伴奏ソースにはデスクトップ音声、またはシステム音声を取り込むソースを選んでください。');
   let playbackName='';
   const device=musicSettings.inputSettings?.device_id;
-  if(device&&device!=='default'){
+  if(!mac&&device&&device!=='default'){
    const list=await this.rpc('GetInputPropertiesListPropertyItems',{...identity(music),propertyName:'device_id'});
    playbackName=list.propertyItems?.find(item=>item.itemValue===device)?.itemName;
    if(!playbackName)throw Error('デスクトップ音声の再生デバイスを確認できませんでした。');

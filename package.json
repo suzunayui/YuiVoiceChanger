@@ -11,7 +11,8 @@
     "test:ui": "node tests/electron-smoke.cjs && node tests/onboarding.cjs && node tests/help-ui.cjs && node tests/settings-transfer.cjs && node tests/formant-ui.cjs && node tests/slider-step-ui.cjs && node tests/live-controls-ui.cjs && node tests/singing-ui.cjs && node tests/calibration-ui.cjs && node tests/obs-ui.cjs && node tests/clarity-layout.cjs && node tests/compute-ui.cjs && node tests/model-history-ui.cjs && node tests/model-icons-ui.cjs && node tests/model-library-ui.cjs && node tests/official-model-library-ui.cjs && node tests/presets-ui.cjs && node tests/preset-live-ui.cjs && node tests/obs-sync-ui.cjs",
     "test:config": "node tests/config.cjs && node tests/engine-paths.cjs && node tests/setup.cjs && node tests/official-model.cjs && node tests/model-history.cjs && node tests/obs-link.cjs && node tests/latency-calibration.cjs && node tests/presets.cjs && node tests/obs-sync.cjs",
     "dist": "npm run build && electron-builder --win nsis",
-    "dist:mac:preview": "node -e \"throw Error('GPU direct conversion currently supports Windows x64 / NVIDIA only')\""
+    "dist:mac:preview": "npm run dist:mac",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -66,6 +67,14 @@
       {
         "from": "requirements.txt",
         "to": "backend/requirements.txt"
+      },
+      {
+        "from": "requirements-mac.txt",
+        "to": "backend/requirements-mac.txt"
+      },
+      {
+        "from": "docs/mac-preview.md",
+        "to": "docs/mac-preview.md"
       }
     ],
     "win": {
@@ -86,6 +95,32 @@
       "createDesktopShortcut": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.utilities",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false,
+      "minimumSystemVersion": "14.0",
+      "artifactName": "YuiVoiceChanger-${version}-mac-${arch}.${ext}",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "声をリアルタイムで変換するためにマイクを使用します。"
+      }
     }
   }
 }
