@@ -26,6 +26,9 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),asse
   await page.getByRole('button',{name:'♫ 歌枠用設定',exact:true}).click();
   assert(await page.getByRole('button',{name:'ビープでOBSのずれを自動調整',exact:true}).isEnabled());
   assert.equal(await page.getByText('この版はWindows x64用です。',{exact:true}).count(),0);
+  await page.getByRole('button',{name:'▤ 使い方',exact:true}).click();
+  await page.getByRole('link',{name:'Mac版の導入',exact:true}).click();
+  await page.getByRole('heading',{name:'Apple Silicon Mac試用版',exact:true}).waitFor();
   console.log('PASS native packaged Apple Silicon desktop, Core Audio input/output selection, persistence and calibration launcher; microphone never opened');
  }finally{await app.close();fs.rmSync(home,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});

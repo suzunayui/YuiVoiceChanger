@@ -333,7 +333,7 @@ else {
    }
    if(action==='read-help'){
     const docs=app.isPackaged?process.resourcesPath:ROOT;
-    const files={readme:path.join(docs,'README.md'),beatrice:path.join(docs,'docs','beatrice.md'),license:path.join(ROOT,'LICENSE'),notices:path.join(ROOT,'THIRD_PARTY_NOTICES.md')};
+    const files={readme:path.join(docs,'README.md'),beatrice:path.join(docs,'docs','beatrice.md'),mac:path.join(docs,'docs','mac-preview.md'),license:path.join(ROOT,'LICENSE'),notices:path.join(ROOT,'THIRD_PARTY_NOTICES.md')};
     if(typeof payload!=='string'||!Object.hasOwn(files,payload))throw Error('Unknown help document');
     return fs.readFileSync(files[payload],'utf8');
    }

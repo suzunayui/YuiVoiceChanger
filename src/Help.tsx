@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const files={readme:'README.md',beatrice:'docs/beatrice.md',license:'LICENSE',notices:'THIRD_PARTY_NOTICES.md'};
+const files={readme:'README.md',beatrice:'docs/beatrice.md',mac:'docs/mac-preview.md',license:'LICENSE',notices:'THIRD_PARTY_NOTICES.md'};
 type DocumentId=keyof typeof files;
 const origin='https://yui-help.invalid/';
 const headingId=(node:any):string=>{
