@@ -12,7 +12,7 @@
     "test:config": "node tests/config.cjs && node tests/engine-paths.cjs && node tests/setup.cjs && node tests/official-model.cjs && node tests/model-history.cjs && node tests/obs-link.cjs && node tests/latency-calibration.cjs && node tests/presets.cjs && node tests/obs-sync.cjs",
     "dist": "npm run build && electron-builder --win nsis",
     "dist:mac:preview": "npm run dist:mac",
-    "dist:mac": "npm run build && electron-builder --mac dmg zip --arm64"
+    "dist:mac": "npm run build && electron-builder --mac dmg --arm64"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -100,12 +100,6 @@
       "target": [
         {
           "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
           "arch": [
             "arm64"
           ]

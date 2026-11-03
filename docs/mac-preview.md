@@ -2,7 +2,7 @@
 
 macOS 14以降・Apple Silicon（M1以降）向けです。現時点ではCPUで変換します。Intel MacとApple GPU（MPS）での推論、RVCモデルからの学習には対応していません。
 
-1. DMGを開き、YuiVoiceChangerをApplicationsへコピーします。ZIP版は展開して.appをApplicationsへ移動してください。
+1. DMGを開き、YuiVoiceChangerをApplicationsへコピーします。
 2. アプリを開き、「環境設定」から必要な環境を自動セットアップします。Python 3.15.2と音声処理ライブラリを専用フォルダに準備します。システムのPythonやHomebrewは変更しません。
 3. モデル一覧からBeatriceの.pt.gz／.pt、または.tomlと.bin一式を追加します。「つくよみちゃんで試す」も利用規約への同意後に使えます。
 4. マイクと出力先を選び、声変換を開始します。初回はmacOSのマイクへのアクセスを許可してください。許可しなかった場合は「システム設定 → プライバシーとセキュリティ → マイク」で変更できます。

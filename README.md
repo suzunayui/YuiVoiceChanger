@@ -172,7 +172,7 @@ python tests/gpu_inference.py --checkpoint "voice.pt.gz" --audio "original-48k.w
 実機マイクの開始・停止・再開は`node tests/desktop-audio.cjs <desktop.json>`、初回ダウンロードを含むセットアップは`node tests/runtime-setup.cjs`で明示的に実行します。
 
 `npm run dist`でWindowsインストーラーを作成します。Python、ライブラリ、学習済みの重みは同梱せず、モデル定義とそのライセンスを同梱します。
-Apple Silicon Mac試用版はMac上で`npm run dist:mac`を実行するとDMGとZIPを作成します。GitHub Actionsの「Apple Silicon build」からもビルドできます。Mac版はCPU推論に対応し、Core Audioを使います。Apple Developer IDによる署名・公証は行っていません。
+Apple Silicon Mac試用版はMac上で`npm run dist:mac`を実行するとDMGを作成します。GitHub Actionsの「Apple Silicon build」からもビルドできます。Mac版はCPU推論に対応し、Core Audioを使います。Apple Developer IDによる署名・公証は行っていません。
 
 ## 構成
 

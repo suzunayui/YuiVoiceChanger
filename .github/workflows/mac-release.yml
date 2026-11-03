@@ -29,7 +29,7 @@ jobs:
           "$MAC_RUNTIME_PYTHON" tests/run.py
           "$MAC_RUNTIME_PYTHON" scripts/check-mac-inference.py
       - run: npm run test:config
-      - name: Build DMG and ZIP
+      - name: Build DMG
         run: npm run dist:mac -- --config.directories.output=release/mac-build
       - name: Check app bundle and desktop UI
         run: |
@@ -40,12 +40,11 @@ jobs:
       - name: Checksums
         run: |
           cd release/mac-build
-          shasum -a 256 *.dmg *.zip > SHA256SUMS-mac-arm64.txt
+          shasum -a 256 *.dmg > SHA256SUMS-mac-arm64.txt
       - uses: actions/upload-artifact@v7
         with:
           name: YuiVoiceChanger-mac-arm64
           path: |
             release/mac-build/*.dmg
-            release/mac-build/*.zip
             release/mac-build/SHA256SUMS-mac-arm64.txt
           if-no-files-found: error
