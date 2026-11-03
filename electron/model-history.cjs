@@ -1,6 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 function modelName(file,alias=''){
- return alias.trim()||path.basename(file)||'未選択';
+ return alias.trim()||path.posix.basename(file.replace(/\\/g,'/'))||'未選択';
 }
 function key(item){return path.resolve(item.path).toLowerCase()+'#'+item.voice;}
 function available(file){try{return fs.statSync(file,{throwIfNoEntry:false})?.isFile()||false;}catch{return false;}}

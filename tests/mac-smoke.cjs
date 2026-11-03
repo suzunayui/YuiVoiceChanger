@@ -6,6 +6,9 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),asse
  const home=fs.mkdtempSync(path.join(os.tmpdir(),'yvc-mac-smoke-'));
  const app=await electron.launch({executablePath:process.argv[2],args:[],env:{...process.env,YVC_DESKTOP_HOME:home}});
  try{
+  assert(await app.evaluate(({app})=>app.isPackaged));
+  const resources=await app.evaluate(()=>process.resourcesPath);
+  for(const file of ['backend/worker.py','backend/requirements-mac.txt','backend/BEATRICE_LICENSE.txt','docs/mac-preview.md'])assert(fs.statSync(path.join(resources,file)).isFile(),file);
   const page=await app.firstWindow();await page.getByRole('heading',{name:'環境設定',exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>window.yvc.platform),'darwin');
   await page.getByRole('button',{name:'◉ 声を変える',exact:true}).click();
