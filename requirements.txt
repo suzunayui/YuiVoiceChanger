@@ -1,3 +1,21 @@
-numpy>=1.26,<3
-sounddevice>=0.5,<0.6
-pedalboard==0.9.25
+# Windows x64 / CPython 3.15.2; matched to the listening-tested GPU runtime.
+numpy==2.5.4
+sounddevice==0.5.6
+soundfile==0.14.0
+torchaudio==2.11.1
+certifi==2026.10.23
+cffi==2.1.1
+filelock==4.2.7
+fsspec==2026.9.0
+jinja2==3.1.6
+markupsafe==3.0.4
+mpmath==1.3.0
+networkx==3.7
+pycparser==3.12
+sympy==1.14.0
+setuptools==84.2.1
+onnx==1.23.2
+ml-dtypes==0.6.0
+protobuf==7.36.2
+typing-extensions==4.16.0
+torch @ https://download-r2.pytorch.org/whl/cu132/torch-2.15.0%2Bcu132-cp315-cp315-win_amd64.whl#sha256=b2742d796bff9fd69e3153955852af56d1c6b0ff75d24a47f710ac1dbc4a5b47

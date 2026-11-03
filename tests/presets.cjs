@@ -1,0 +1,30 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {Presets}=require('../electron/presets.cjs'),{normalize}=require('../electron/config.cjs');
+const home=fs.mkdtempSync(path.join(os.tmpdir(),'yvc-presets-'));
+try{
+ const model=path.join(home,'voice.toml');fs.writeFileSync(model,'fixture');
+ const saved=normalize({engine_version:2,beatrice_model:model,beatrice_voice:1,beatrice_model_alias:'声',beatrice_pitch:7,beatrice_formant:.5,input:1,output:2,input_name:'Mic',output_name:'Cable',singing_enabled:true,singing_latency_ms:510,fx_enabled:true,fx_reverb:24,obs_correction_ms:15,obs_input_name:'伴奏',python:'old-python',training_audio:'private-audio'});
+ const store=new Presets(home),id=store.save({name:'  通話用  ',config:{...saved,obs_password:'secret'}});
+ assert.deepEqual(store.list(),[{id,name:'通話用'}]);
+ const persisted=fs.readFileSync(store.file,'utf8');for(const excluded of ['python','training_audio','obs_password','secret','private-audio'])assert(!persisted.includes(excluded));
+ const current=normalize({engine_version:2,python:'current-python',training_audio:'current-audio',beatrice_pitch:-3});
+ const devices=[{host:'Windows WASAPI',name:'Mic',id:10,inputs:1},{host:'Windows WASAPI',name:'Cable',id:20,outputs:2}];
+ const restored=new Presets(home).apply(id,current,devices);
+ for(const key of ['beatrice_model','beatrice_voice','beatrice_model_alias','beatrice_pitch','beatrice_formant','singing_enabled','singing_latency_ms','fx_enabled','fx_reverb','obs_correction_ms','obs_input_name'])assert.equal(restored[key],saved[key],key);
+ assert.equal(restored.input,10);assert.equal(restored.output,20);assert.equal(restored.python,'current-python');assert.equal(restored.training_audio,'current-audio');
+ store.markApplied(id);assert.equal(new Presets(home).list(restored)[0].active,true);
+ assert.equal(store.list({...restored,gain:restored.gain-1})[0].active,false);
+ const twin=store.save({name:'同じ設定',config:saved});store.markApplied(twin);
+ assert.deepEqual(store.list(restored).map(item=>item.active),[false,true]);store.remove(twin);store.markApplied(id);
+ const before=fs.readFileSync(store.file,'utf8');
+ for(const name of ['', 'a\nb','x'.repeat(81),'通話用'])assert.throws(()=>store.save({name,config:saved}));
+ assert.throws(()=>store.save({name:'bad',config:{beatrice_pitch:999}}));assert.throws(()=>store.save({name:'bad',config:null}));
+ assert.equal(fs.readFileSync(store.file,'utf8'),before);
+ store.save({id,name:'歌枠用'});assert.equal(store.get(id).settings.beatrice_pitch,7);
+ assert.throws(()=>store.apply(id,current,[]),/マイク/);
+ store.save({id,name:'歌枠用',config:{...saved,beatrice_pitch:10}});assert.equal(new Presets(home).get(id).settings.beatrice_pitch,10);
+ fs.unlinkSync(model);assert.throws(()=>store.apply(id,current,devices),/モデルファイル/);assert.equal(current.beatrice_pitch,-3);
+ store.remove(id);assert.deepEqual(new Presets(home).list(),[]);assert.throws(()=>store.apply(id,current));
+ fs.writeFileSync(store.file,'corrupt');const broken=new Presets(home);assert.throws(()=>broken.save({name:'test',config:current}));assert.equal(fs.readFileSync(store.file,'utf8'),'corrupt');
+ console.log('PASS: named preset persistence, complete voice/singing restore, device renumbering, environment/secret exclusion, CRUD, validation, missing files/devices and corruption preserve data');
+}finally{fs.rmSync(home,{recursive:true,force:true});}

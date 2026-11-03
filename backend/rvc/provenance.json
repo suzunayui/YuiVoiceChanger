@@ -1,0 +1,33 @@
+[
+  {
+    "file": "models.py",
+    "source": "infer/module/models.py",
+    "sha256": "d5c62301d967600da968780ad7e9dc9d9f58cd232dbb3fe73499c1ecfa857359"
+  },
+  {
+    "file": "modules.py",
+    "source": "infer/module/modules.py",
+    "sha256": "b1aa77b0921468a61492fa89ed1f1212cd22fee3caa551befe44d8ab359fd2f1"
+  },
+  {
+    "file": "attentions.py",
+    "source": "infer/module/attentions.py",
+    "sha256": "8820e6047353d99344fc73fbb6c69d85e4f61066fc498982cc895e9577d4519f"
+  },
+  {
+    "file": "commons.py",
+    "source": "infer/module/commons.py",
+    "sha256": "132a907eff444907861e63684c04c88ae631d03707470858f7c53f857b0cc5c8"
+  },
+  {
+    "file": "transforms.py",
+    "source": "infer/module/transforms.py",
+    "sha256": "fb0d3320adf32ca0eaa44dd56e8922927f77ec3dd45c775e10c3da1704072c6a"
+  },
+  {
+    "file": "rmvpe.py",
+    "source": "infer/rmvpe.py",
+    "sha256": "074171aec63e4b68f04d8691c62af50a1d99b9bc6dc56c4d6749fad4ba64853a",
+    "changes": "No global device selection, no CUDA graphs, TorchAudio HTK/Slaney mel bank, removed unused DirectML STFT implementation"
+  }
+]

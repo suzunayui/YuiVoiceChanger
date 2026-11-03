@@ -1,0 +1,15 @@
+{
+  "upstream": "https://github.com/fierce-cats/beatrice-trainer",
+  "original_file": "beatrice_trainer/__main__.py",
+  "original_sha256": "f43fc6533d5e20dc5e1c48c30b4e5cacc470ebf5f1f6b37b9825f12711eee7b1",
+  "extracted_sha256": "6864ceb0b285f506c7d172ee2bfadbe171beb1bbf96b3e7672362c8ca607c7e3",
+  "license": "BEATRICE_LICENSE.txt",
+  "changes": [
+    "Extracted definitions through ConverterNetwork; removed training CLI initialization",
+    "Removed old binary-library path injection and training-only pyworld, tensorboard, tqdm imports",
+    "Removed obsolete torchaudio.list_audio_backends assertion",
+    "CrossAttention passes zero dropout to scaled_dot_product_attention during eval",
+    "Removed optional progress wrapper from VQ codebook construction for native training"
+  ],
+  "weights": "No trained weights are included or modified."
+}

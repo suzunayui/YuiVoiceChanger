@@ -1,6 +1,5 @@
 """JSON-lines IPC over private pipes. Never listens on a network port."""
 import json
-import os
 from pathlib import Path
 import sys
 import threading
@@ -9,10 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 for stream in (sys.stdin, sys.stdout, sys.stderr):
     stream.reconfigure(encoding='utf-8')
 sys.path.insert(0,str(ROOT))
-if (ROOT/'.local/beatrice-libs').is_dir():
-    sys.path.insert(0,str(ROOT/'.local/beatrice-libs'))
-if os.environ.get('YVC_BEATRICE_LIBS'):
-    sys.path.insert(0, os.environ['YVC_BEATRICE_LIBS'])
 wire = sys.stdout
 sys.stdout = sys.stderr
 lock = threading.Lock()
@@ -24,13 +19,12 @@ def emit(event):
         wire.flush()
 
 
+if not ((3, 15, 2) <= sys.version_info[:3] < (3, 16, 0)):
+    emit({'type':'error','message':'Python 3.15.2以降の3.15系が必要です。環境をセットアップしてください。'})
+    raise SystemExit(1)
 from backend.realtime import Realtime, devices
-try:
-    import pedalboard
-except ImportError:
-    pass
 engine = Realtime(emit)
-emit({'type':'ready'})
+emit({'type':'ready', 'python':sys.version.split()[0]})
 for line in sys.stdin:
     request = {}
     try:
@@ -38,6 +32,9 @@ for line in sys.stdin:
         command = request['command']
         if command == 'devices': emit({'type':'devices','devices':devices()})
         elif command == 'start': engine.start(request['config'])
+        elif command == 'update-controls':
+            if 'effects' in request: engine.update_controls(request['controls'], request['effects'])
+            else: engine.update_controls(request['controls'])
         elif command == 'stop': engine.stop()
         elif command == 'quit': break
         else: raise ValueError('不明なコマンドです。')

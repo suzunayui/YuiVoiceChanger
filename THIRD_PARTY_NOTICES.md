@@ -1,35 +1,39 @@
 # Third-party notices
 
 Original application code is MIT licensed, copyright 2026 YUI.
-Electron and React are MIT licensed. NumPy is BSD-3-Clause licensed.
-python-sounddevice is MIT licensed; PortAudio has its own MIT-style license.
-Retain LICENSE.electron.txt and LICENSES.chromium.html from packaged Electron.
+Electron and React are MIT licensed. Retain Electron's LICENSE.electron.txt and LICENSES.chromium.html in packaged distributions.
 
-## Beatrice VST host
+The in-app help viewer uses react-markdown (MIT, copyright Espen Hovlandsdal), remark-gfm (MIT, copyright Titus Wormer), and their unified/remark/rehype dependencies. Their package license files are retained with the production dependencies in the packaged application.
 
-The Beatrice adapter hosts a separately installed official Beatrice 2.0.0-rc.3
-VST3 through Pedalboard 0.9.25 (Spotify, GPLv3). Pedalboard is an external local
-dependency, not a bundled MIT component. Distribution of the combined program
-requires compliance with its applicable GPL conditions; installing it externally
-does not itself resolve distribution obligations.
+## Beatrice model definitions
 
-The preset format was implemented using the public interface in
-https://github.com/prj-beatrice/beatrice-vst (MIT, Project Beatrice and
-Contributors). The official VST and its inference library and model licenses
-remain separate; they are not relicensed by this repository. The VST archive,
-proprietary milk models, images and test recordings remain local and excluded
-from Git. No inference library is extracted or called directly.
+`backend/beatrice_model.py` is extracted and adapted from `beatrice_trainer/__main__.py` in https://github.com/fierce-cats/beatrice-trainer.
+Copyright (c) 2024 Project Beatrice, MIT License. The complete notice is retained in `backend/BEATRICE_LICENSE.txt` and included in packaged resources.
+`backend/model_provenance.json` records the source SHA256 and inference-only changes, including disabling attention dropout in evaluation.
+No learned weights are bundled or modified. The model's own terms remain separate.
 
-## Historical sources
+The initial setup can download Beatrice 2.0.0-rc.0 Official Model 1 directly from https://storage.prj-beatrice.com/ after the user's explicit consent click. Its files are not part of this repository or installer and must not be redistributed with the application. The original README, portraits and metadata are retained in the user's local installation. Terms: https://prj-beatrice.com/2.0.0-rc.0-official-model-1-terms . The selected voice is つくよみちゃん（コーパス）/ voice 1; applicable character/converted-audio terms remain in effect. The consent receipt records the terms URL and timestamp locally.
 
-The RVC WebUI and w-okada/voice-changer integrations and submodules were removed.
-Their notices remain in Git history alongside the old sources. The current
-runtime does not import either project. Models and recordings are not bundled.
+## Isolated runtime
 
-自動セットアップは公式python.orgからPython 3.12.10（PSF License）を、PyPIからNumPy、sounddevice、pedalboard、cffi（MIT）、pycparser（BSD）を個人PCへ取得します。ライセンス文書は取得したランタイムと各パッケージのdist-info内に保持します。VST・モデルはこの処理に含めません。
+The Windows setup downloads uv 0.13.6 (Astral, MIT/Apache-2.0) from its official GitHub release, verifies its SHA256 and uses it to install CPython 3.15.2 from python-build-standalone.
+Python uses the PSF License; notices for Python and bundled libraries remain in the installed runtime.
+GPU PyTorch 2.15.0 / CUDA 13.2 is downloaded from the official PyTorch wheel host. Its BSD-style and NVIDIA component notices remain in the environment.
+TorchAudio, NumPy, python-sounddevice, SoundFile, CFFI and transitive dependencies retain their license notices in package/dist-info directories. NumPy and TorchAudio use BSD-style licenses; python-sounddevice and CFFI use MIT licenses. PortAudio has an MIT-style license.
+Exact runtime requirements are in `requirements.txt`. No Python runtime, CUDA runtime, audio libraries or learned weights are embedded in the application installer.
 
-Macの自動セットアップはAstralのpython-build-standalone（CPython 3.12.11、Apple Silicon）を公式GitHub Releasesから取得します。Pythonと同梱ライブラリの各ライセンスは取得物に含まれる表記を参照してください。Mac版もVST・音声モデルは同梱しません。配布用ZIPには公式Electronのライセンス・Chromium等の表記を保持します。
+The current runtime does not load Pedalboard, a VST plugin or the official Beatrice inference library. Exported Beatrice FP16 weights are read using the public trainer's serialization order; no proprietary inference library is extracted.
+
+## RVC teacher and model training
+
+`backend/rvc/` vendors the MIT-licensed RVC v1/v2 synthesizer and RMVPE implementation from RVC-Project, with imports adapted for this app and unused library dependencies removed. See `backend/rvc/LICENSE.txt` and `provenance.json`. Learned RVC weights are not bundled.
+HuBERT/ContentVec is loaded into TorchAudio's native Wav2Vec2 model using the public Hugging Face-format weights. No Transformers or Fairseq runtime is required.
+`backend/training_support.py` retains the Beatrice trainer's adversarial losses/discriminators. Its upstream GradBalancer is adapted from Meta EnCodec; the full Meta MIT notice is retained as `backend/ENCODEC_LICENSE.txt`.
+The optional ONNX helper uses CPython 3.14.10, ONNX Runtime GPU 1.31.1 (MIT), NumPy and their dependencies. ONNX (Apache-2.0), Protobuf and ml-dtypes notices remain in their installed distributions.
+Optional common training assets are fetched from the fixed upstream model revisions recorded in `electron/model-assets.cjs`, with hashes checked for weight files. Models and generated training audio are local user content, excluded from the repository and installer. Their terms remain separate from application code.
 
 ## Experimental Yui Microphone driver
 
-The optional source preparation tool uses Microsoft Windows-driver-samples/SysVAD at commit 2dc3fd3a0cc84a2933f2194e7ec0871584979071 (MIT, Microsoft Corporation). Upstream sources are fetched separately and their LICENSE is copied to each generated build tree as MICROSOFT-LICENSE.txt. No driver binary is bundled. The independent PCM bridge and preparation scripts are MIT licensed. The prototype is not built, signed, installed or verified as a Windows audio device.
+The optional source preparation tool uses Microsoft Windows-driver-samples/SysVAD at commit 2dc3fd3a0cc84a2933f2194e7ec0871584979071 (MIT, Microsoft Corporation).
+Upstream sources are fetched separately and their LICENSE is copied to generated build trees as MICROSOFT-LICENSE.txt. No driver binary is bundled. The independent PCM bridge and preparation scripts are MIT licensed.
+The application does not build, sign or install the experimental driver during normal use.

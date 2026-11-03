@@ -24,10 +24,10 @@ async function until(page, predicate, timeout = 30000) {
   fs.writeFileSync(path.join(home, 'desktop.json'), JSON.stringify(config));
   let app;
   try {
-    app = await electron.launch({args: [path.resolve(__dirname, '..')], env: {...process.env, YVC_DESKTOP_HOME: home}});
+    app = await electron.launch({...(process.env.YVC_TEST_EXECUTABLE?{executablePath:process.env.YVC_TEST_EXECUTABLE,args:[]}:{args:[path.resolve(__dirname,'..')]}),env:{...process.env,YVC_DESKTOP_HOME:home}});
     const page = await app.firstWindow();
     page.setDefaultTimeout(10000);
-    await page.getByRole('heading', {name: '声に、もうひとつの表情を。'}).waitFor();
+    await page.getByRole('heading', {name: '音声のルート'}).waitFor();
     await page.evaluate(() => {
       window.audioEvents = [];
       window.yvc.subscribe(event => window.audioEvents.push(event));
@@ -37,7 +37,7 @@ async function until(page, predicate, timeout = 30000) {
     for (let cycle = 0; cycle < 2; cycle++) {
       await page.evaluate(count => { window.audioEvents = []; window.testMetricsCount = count; }, Number(process.env.YVC_TEST_METRICS || 15));
       await page.getByRole('button', {name: /声変換をはじめる/}).click();
-      await until(page, () => window.audioEvents.some(e => e.state === 'running' || e.type === 'error'));
+      await until(page, () => window.audioEvents.some(e => e.state === 'running' || e.type === 'error'), 60000);
       let events = await page.evaluate(() => window.audioEvents);
       assert.equal(events.find(e => e.type === 'error'), undefined, JSON.stringify(events));
       await until(page, () => window.audioEvents.filter(e => e.type === 'metrics').length >= (window.testMetricsCount || 15), 60000);
@@ -45,6 +45,13 @@ async function until(page, predicate, timeout = 30000) {
       assert.equal(events.find(e => e.type === 'error'), undefined);
       const metrics = events.filter(e => e.type === 'metrics');
       assert(metrics.every(e => Number.isFinite(e.ms)));
+      assert(metrics.every(e => Number.isFinite(e.latency_estimate_ms)&&e.latency_estimate_ms>=e.schedule_ms));
+      await page.locator('.performance strong').filter({hasText:/^約\d+\s*ms$/}).waitFor();
+      if(cycle===0&&process.env.YVC_TEST_SCREENSHOT)await page.screenshot({path:process.env.YVC_TEST_SCREENSHOT});
+      assert(metrics.every(e => e.budget_ms>=80&&e.budget_ms<=640&&e.budget_ms%80===0&&e.schedule_ms===2*e.budget_ms));
+      assert(metrics.every(e => e.budget_ms===metrics[0].budget_ms));
+      assert.equal(metrics.at(-1).late_blocks,0,JSON.stringify(metrics.at(-1)));
+      assert.equal(metrics.at(-1).dropped,0,JSON.stringify(metrics.at(-1)));
       console.log(JSON.stringify({cycle: cycle + 1, running: events.find(e => e.state === 'running'), last: metrics.at(-1)}));
       await page.getByRole('button', {name: /停止する/}).click();
       await until(page, () => window.audioEvents.some(e => e.state === 'stopped'));

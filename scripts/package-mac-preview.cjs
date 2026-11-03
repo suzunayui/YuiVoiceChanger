@@ -1,4 +1,5 @@
 // Assemble an unsigned Apple Silicon preview without extracting Mach-O symlinks on Windows.
+throw Error('The GPU direct-conversion engine currently supports Windows x64 / NVIDIA only.');
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const asar=require('@electron/asar');

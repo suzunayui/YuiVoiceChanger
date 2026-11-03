@@ -1,6 +1,6 @@
 {
   "name": "yui-voice-changer",
-  "version": "0.3.0-beta.7",
+  "version": "2026.1103.34",
   "private": true,
   "description": "Yui Voice Changer — independent realtime voice conversion",
   "main": "electron/main.cjs",
@@ -8,14 +8,16 @@
     "build": "tsc --noEmit && vite build",
     "start": "npm run build && electron .",
     "desktop": "electron .",
-    "test:ui": "node tests/electron-smoke.cjs",
+    "test:ui": "node tests/electron-smoke.cjs && node tests/onboarding.cjs && node tests/help-ui.cjs && node tests/settings-transfer.cjs && node tests/formant-ui.cjs && node tests/slider-step-ui.cjs && node tests/live-controls-ui.cjs && node tests/singing-ui.cjs && node tests/calibration-ui.cjs && node tests/obs-ui.cjs && node tests/clarity-layout.cjs && node tests/compute-ui.cjs && node tests/model-history-ui.cjs && node tests/model-icons-ui.cjs && node tests/model-library-ui.cjs && node tests/official-model-library-ui.cjs && node tests/presets-ui.cjs && node tests/preset-live-ui.cjs && node tests/obs-sync-ui.cjs",
+    "test:config": "node tests/config.cjs && node tests/engine-paths.cjs && node tests/setup.cjs && node tests/official-model.cjs && node tests/model-history.cjs && node tests/obs-link.cjs && node tests/latency-calibration.cjs && node tests/presets.cjs && node tests/obs-sync.cjs",
     "dist": "npm run build && electron-builder --win nsis",
-    "dist:mac": "npm run build && electron-builder --mac zip --arm64",
-    "dist:mac:preview": "npm run build && node scripts/package-mac-preview.cjs"
+    "dist:mac:preview": "node -e \"throw Error('GPU direct conversion currently supports Windows x64 / NVIDIA only')\""
   },
   "dependencies": {
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -25,7 +27,8 @@
     "electron-builder": "^26.15.3",
     "png-to-ico": "^3.0.2",
     "typescript": "^7.0.2",
-    "vite": "^8.3.2"
+    "vite": "^8.3.2",
+    "ws": "^8.22.1"
   },
   "author": "YUI",
   "build": {
@@ -38,18 +41,31 @@
       "electron/**/*",
       "renderer-dist/**/*",
       "assets/icon.ico",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
       "package.json"
     ],
     "extraResources": [
       {
+        "from": "README.md",
+        "to": "README.md"
+      },
+      {
+        "from": "docs/beatrice.md",
+        "to": "docs/beatrice.md"
+      },
+      {
         "from": "backend",
         "to": "backend",
         "filter": [
-          "worker.py",
-          "realtime.py",
-          "beatrice.py",
-          "__init__.py"
+          "**/*.py",
+          "**/*.json",
+          "**/*LICENSE*.txt"
         ]
+      },
+      {
+        "from": "requirements.txt",
+        "to": "backend/requirements.txt"
       }
     ],
     "win": {
@@ -70,23 +86,6 @@
       "createDesktopShortcut": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
-    },
-    "mac": {
-      "target": [
-        {
-          "target": "zip",
-          "arch": [
-            "arm64"
-          ]
-        }
-      ],
-      "identity": null,
-      "hardenedRuntime": false,
-      "category": "public.app-category.music",
-      "icon": "assets/icon.icns",
-      "extendInfo": {
-        "NSMicrophoneUsageDescription": "声をリアルタイムで変換するためにマイクを使用します。"
-      }
     }
   }
 }
