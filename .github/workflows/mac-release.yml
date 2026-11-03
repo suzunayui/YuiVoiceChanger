@@ -4,13 +4,13 @@ on:
   push:
     branches: [feature/macos-arm64]
 concurrency:
-  group: mac-${{ github.ref }}
+  group: mac-${{ github.sha }}
   cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   mac:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 35
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
