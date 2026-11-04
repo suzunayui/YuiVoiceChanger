@@ -14,7 +14,7 @@ export default function PresetCard({config,disabled,saveDisabled,onApply}:Props)
    <button className={'obs-button preset-apply'+(item.active?' chosen':'')} aria-pressed={!!item.active} disabled={busy||disabled} title={`${item.name}：${disabled?'準備・切り替え・学習が終わるまでお待ちください。':'クリックで設定を切り替えます。変換中も使えます。同じモデル・実行先なら重みを保持します。固定遅延や入出力先を変える場合は音声バッファを作り直すため、一時的に音が途切れます。'}`} onClick={()=>apply(item)}>{item.active&&<span aria-hidden="true">✓ </span>}{item.name}</button>
    <button className="obs-button preset-edit" aria-label={`プリセット「${item.name}」を編集`} disabled={busy||saveDisabled} title="名前の変更・現在の設定で上書き・削除を行います。" onClick={()=>{setError('');setEditing(item);}}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15l-1 5Z"/></svg></button>
   </div>)}</div>
-  {!items.length&&<p className="hint">保存したプリセットがありません。</p>}
+  {!items.length&&!error&&<p className="hint">保存したプリセットがありません。</p>}
   {message&&<p className="hint" role="status">{message}</p>}{error&&<p className="error" role="alert">{error}</p>}
   {editing&&<PresetEditor item={editing==='new'?undefined:editing} config={config} disabled={saveDisabled} onClose={()=>setEditing(null)} onSaved={(next,_id,text)=>{setItems(next);setMessage(text);setEditing(null);}}/>}
  </section>;

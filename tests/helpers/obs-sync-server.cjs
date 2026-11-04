@@ -6,26 +6,34 @@ class ObsSyncServer extends ObsServer{
   this.parameters={'Output/Mode':'Simple','Output/FilenameFormatting':'original-%ss','SimpleOutput/RecTracks':'1','SimpleOutput/FilePath':'original-folder','SimpleOutput/RecFormat2':'mkv','SimpleOutput/RecQuality':'Small'};
   for(const input of this.inputs)input.tracks={'1':true,'2':false,'3':false,'4':false,'5':false,'6':false};
   this.extraRequests=['GetProfileParameter','SetProfileParameter','GetProfileList','CreateProfile','SetCurrentProfile','RemoveProfile','GetInputAudioTracks','SetInputAudioTracks','StartRecord','StopRecord','GetStreamStatus','GetRecordStatus','GetReplayBufferStatus','GetInputMute','GetInputSettings','GetInputPropertiesListPropertyItems','CreateInput','RemoveInput','GetCurrentProgramScene','SetInputAudioMonitorType','SetSceneItemEnabled'];
+  this.extraRequests.push('GetInputAudioMonitorType','GetMediaInputStatus','TriggerMediaInputAction','GetInputAudioBalance','SetInputAudioBalance');
   this.handleRequest=async(type,data)=>{
+   if(this.beforeRequest)await this.beforeRequest(type,data);
    if(this.failNext===type){this.failNext='';return {code:500};}
    let response={};const input=this.inputs.find(item=>data.inputUuid?item.inputUuid===data.inputUuid:item.inputName===data.inputName);
    if(type==='GetStreamStatus')response={outputActive:this.streaming};
-   else if(type==='GetRecordStatus')response={outputActive:this.recording};
+   else if(type==='GetRecordStatus')response={outputActive:this.recording,outputDuration:this.recording?1000+Date.now()-this.recordStarted:0,outputBytes:this.recording?4096+(Date.now()-this.recordStarted)*256:0};
    else if(type==='GetReplayBufferStatus'){if(!this.replayAvailable&&!this.replay)return {code:604};response={outputActive:this.replay};}
    else if(type==='GetVirtualCamStatus'){if(!this.cameraAvailable)return {code:604};response={outputActive:!!this.camera};}
    else if(type==='GetProfileList')response={currentProfileName:this.profile,profiles:[...this.profiles]};
    else if(type==='GetProfileParameter')response={parameterValue:this.parameters[data.parameterCategory+'/'+data.parameterName]??null};
    else if(type==='SetProfileParameter'){const key=data.parameterCategory+'/'+data.parameterName;if(data.parameterValue===null)delete this.parameters[key];else this.parameters[key]=data.parameterValue;}
-   else if(type==='GetInputAudioTracks'){if(!input)return {code:600};response={inputAudioTracks:structuredClone(input.tracks)};}
+   else if(type==='GetInputAudioTracks'){if(!input)return {code:600};if(input.noAudio)return {code:604};response={inputAudioTracks:structuredClone(input.tracks)};}
    else if(type==='SetInputAudioTracks'){if(!input)return {code:600};input.tracks=structuredClone(data.inputAudioTracks);}
    else if(type==='GetInputMute')response={inputMuted:false};
-   else if(type==='GetInputSettings')response={inputKind:input?.inputUuid==='desktop'?'wasapi_output_capture':'wasapi_input_capture',inputSettings:{device_id:input?.inputUuid==='desktop'?'default':input?.inputUuid==='voice'?'cable':'mic'}};
+   else if(type==='GetInputSettings')response={inputKind:input?.inputKind||(input?.noAudio?'window_capture':input?.inputUuid==='desktop'?'wasapi_output_capture':'wasapi_input_capture'),inputSettings:{device_id:input?.inputUuid==='desktop'?'default':input?.inputUuid==='voice'?'cable':'mic'}};
    else if(type==='GetInputPropertiesListPropertyItems')response={propertyItems:[{itemName:'Fixture mic',itemValue:'mic',itemEnabled:true},{itemName:'CABLE Output',itemValue:'cable',itemEnabled:true}]};
    else if(type==='GetCurrentProgramScene')response={currentProgramSceneName:'Scene'};
-   else if(type==='CreateInput'){this.inputs.push({inputName:data.inputName,inputUuid:'raw-'+this.inputs.length,offset:0,tracks:{'1':false,'2':true,'3':false,'4':false,'5':false,'6':false}});response={inputUuid:this.inputs.at(-1).inputUuid,sceneItemId:42};}
+   else if(type==='CreateInput'){this.inputs.push({inputName:data.inputName,inputUuid:'raw-'+this.inputs.length,inputKind:data.inputKind,settings:data.inputSettings,offset:0,tracks:{'1':false,'2':true,'3':false,'4':false,'5':false,'6':false}});response={inputUuid:this.inputs.at(-1).inputUuid,sceneItemId:42};}
    else if(type==='RemoveInput'){if(!input)return {code:600};this.inputs=this.inputs.filter(item=>item!==input);}
-   else if(type==='SetInputAudioMonitorType'||type==='SetSceneItemEnabled'){}
-   else if(type==='StartRecord'){if(this.recording)return {code:500};this.recording=true;const folder=this.parameters['SimpleOutput/FilePath'];fs.mkdirSync(folder,{recursive:true});this.recordFile=path.join(folder,'test.mkv');fs.writeFileSync(this.recordFile,'fixture');}
+   else if(type==='GetInputAudioMonitorType')response={monitorType:input?.monitorType||'OBS_MONITORING_TYPE_NONE'};
+   else if(type==='GetInputAudioBalance')response={inputAudioBalance:input?.balance??.5};
+   else if(type==='SetInputAudioBalance'){if(!input)return {code:600};input.balance=data.inputAudioBalance;}
+   else if(type==='SetInputAudioMonitorType'){if(!input)return {code:600};input.monitorType=data.monitorType;}
+   else if(type==='TriggerMediaInputAction'){if(!input)return {code:600};input.mediaStarted=Date.now();}
+   else if(type==='GetMediaInputStatus')response={mediaState:'OBS_MEDIA_STATE_PLAYING',mediaCursor:Date.now()-(input?.mediaStarted||Date.now())+1};
+   else if(type==='SetSceneItemEnabled'){}
+   else if(type==='StartRecord'){if(this.recording)return {code:500};this.recording=true;this.recordStarted=Date.now();const folder=this.parameters['SimpleOutput/FilePath'];fs.mkdirSync(folder,{recursive:true});this.recordFile=path.join(folder,'test.mkv');fs.writeFileSync(this.recordFile,'fixture');}
    else if(type==='StopRecord'){this.recording=false;response={outputPath:this.recordFile};}
    else if(type==='CreateProfile'){
     if(this.profiles.includes(data.profileName))return {code:601};

@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from backend.beatrice_model import PhoneExtractor,PitchEstimator,ConverterNetwork
 from backend.direct_gpu import DirectModel
+from backend.streaming_excitation import StreamingExcitation
 
 torch.set_num_threads(2)
 torch.manual_seed(42)
@@ -18,4 +19,9 @@ t=np.arange(16000,dtype=np.float32)/16000
 audio=(.05*np.sin(2*np.pi*180*t)).astype(np.float32)
 output=model.infer(audio,shift=0,formant=0)
 assert output.ndim==1 and len(output)>0 and np.isfinite(output).all()
+state=StreamingExcitation(1920,3120)
+for _ in range(2):
+    fixed=model.infer(audio,shift=0,formant=0,excitation_state=state)
+    assert fixed.shape==output.shape and np.isfinite(fixed).all()
+assert state.previous_phase is not None and state.previous_noise is not None
 print('PASS native CPU Beatrice model inference with synthetic input and random weights:',len(output))

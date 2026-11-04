@@ -1,6 +1,6 @@
 {
   "name": "yui-voice-changer",
-  "version": "2026.1103.34",
+  "version": "2026.1104.30",
   "private": true,
   "description": "Yui Voice Changer — independent realtime voice conversion",
   "main": "electron/main.cjs",
@@ -8,8 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "start": "npm run build && electron .",
     "desktop": "electron .",
-    "test:ui": "node tests/electron-smoke.cjs && node tests/onboarding.cjs && node tests/help-ui.cjs && node tests/settings-transfer.cjs && node tests/formant-ui.cjs && node tests/slider-step-ui.cjs && node tests/live-controls-ui.cjs && node tests/singing-ui.cjs && node tests/calibration-ui.cjs && node tests/obs-ui.cjs && node tests/clarity-layout.cjs && node tests/compute-ui.cjs && node tests/model-history-ui.cjs && node tests/model-icons-ui.cjs && node tests/model-library-ui.cjs && node tests/official-model-library-ui.cjs && node tests/presets-ui.cjs && node tests/preset-live-ui.cjs && node tests/obs-sync-ui.cjs",
-    "test:config": "node tests/config.cjs && node tests/engine-paths.cjs && node tests/setup.cjs && node tests/official-model.cjs && node tests/model-history.cjs && node tests/obs-link.cjs && node tests/latency-calibration.cjs && node tests/presets.cjs && node tests/obs-sync.cjs",
+    "test:ui": "node tests/electron-smoke.cjs && node tests/onboarding.cjs && node tests/help-ui.cjs && node tests/settings-transfer.cjs && node tests/formant-ui.cjs && node tests/slider-step-ui.cjs && node tests/live-controls-ui.cjs && node tests/singing-ui.cjs && node tests/manual-delay-ui.cjs && node tests/calibration-ui.cjs && node tests/obs-ui.cjs && node tests/clarity-layout.cjs && node tests/compute-ui.cjs && node tests/model-history-ui.cjs && node tests/model-icons-ui.cjs && node tests/model-library-ui.cjs && node tests/official-model-library-ui.cjs && node tests/presets-ui.cjs && node tests/preset-live-ui.cjs",
+    "test:config": "node tests/config.cjs && node tests/manual-delay.cjs && node tests/engine-probe.cjs && node tests/obs-reference.cjs && node tests/engine-paths.cjs && node tests/setup.cjs && node tests/official-model.cjs && node tests/model-history.cjs && node tests/obs-link.cjs && node tests/obs-video-delay.cjs && node tests/obs-video-sources.cjs && node tests/latency-calibration.cjs && node tests/presets.cjs && node tests/audio-stability.cjs && node tests/obs-sync.cjs && node tests/obs-sync-verification.cjs && node tests/obs-broadcast.cjs",
+    "test:mix": "node tests/obs-mix.cjs && node tests/obs-mix-video.cjs",
     "dist": "npm run build && electron-builder --win nsis",
     "dist:mac:preview": "npm run dist:mac",
     "dist:mac": "npm run build && electron-builder --mac dmg --arm64 --publish never"
@@ -78,6 +79,7 @@
       }
     ],
     "win": {
+      "extraResources": [{"from":"obs-plugin","to":"obs-plugin"}],
       "icon": "assets/icon.ico",
       "target": [
         {

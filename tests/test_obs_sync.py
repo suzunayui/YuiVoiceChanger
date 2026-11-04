@@ -39,20 +39,21 @@ class ObsSyncTests(unittest.TestCase):
                 result=analyze_stems(*signals,target,target,0)
                 self.assertEqual(result['matched'],8)
                 self.assertAlmostEqual(result['voice_delay_ms'],delay*1000,delta=6)
-                expected=(.02+delay)*1000-target
+                expected=delay*1000-target
                 self.assertAlmostEqual(result['correction_ms'],expected,delta=18)
                 self.assertLess(result['spread_ms'],5)
 
     def test_small_jitter_and_missing_utterance_are_robust(self):
         result=analyze_stems(*stems(jitter=[0,.01,-.01,.015,0,-.005,.005,0],missing=(2,)),380,380,0)
         self.assertEqual(result['matched'],7)
-        self.assertAlmostEqual(result['correction_ms'],120,delta=20)
+        self.assertAlmostEqual(result['correction_ms'],100,delta=20)
 
     def test_bad_inputs_do_not_produce_a_correction(self):
         beep,dry,wet=stems()
         for signals in [(beep,dry,dry),(np.zeros_like(beep),dry,wet),(beep,np.zeros_like(dry),wet),stems(missing=(0,1,2,3))]:
             with self.subTest(case=id(signals)),self.assertRaises(ValueError):analyze_stems(*signals,380,380,0)
-        with self.assertRaises(ValueError):analyze_stems(*stems(jitter=[-.2,.15,-.15,.15,-.2,.15,-.15,.15]),380,380,0)
+        result=analyze_stems(*stems(jitter=[-.2,.15,-.15,.15,-.2,.15,-.15,.15]),380,380,0)
+        self.assertAlmostEqual(result['correction_ms'],100,delta=10)
         with self.assertRaises(ValueError):analyze_stems(*stems(delay=1.65),380,380,0)
         wet[0]=float('nan')
         with self.assertRaises(ValueError):analyze_stems(beep,dry,wet,380,380,0)
@@ -64,7 +65,7 @@ class ObsSyncTests(unittest.TestCase):
         shift=RATE//10;beep=np.r_[np.zeros(shift),beep[:-shift]]
         dry=np.r_[np.zeros(shift),dry[:-shift]]
         result=analyze_stems(beep,dry,wet,480,380,100,dry_offset_ms=100)
-        self.assertAlmostEqual(result['correction_ms'],120,delta=18)
+        self.assertAlmostEqual(result['correction_ms'],100,delta=18)
         self.assertAlmostEqual(result['voice_delay_ms'],480,delta=6)
 
     def test_direct_mic_is_aligned_to_obs_recording_start(self):
@@ -75,7 +76,7 @@ class ObsSyncTests(unittest.TestCase):
                 return np.r_[audio[count:],np.zeros(count)] if shift<0 else np.r_[np.zeros(count),audio[:-count]]
             result=analyze_stems(move(beep),dry,move(wet),380,380,0,dry_is_local=True)
             self.assertEqual(result['matched'],8)
-            self.assertAlmostEqual(result['correction_ms'],120,delta=20)
+            self.assertAlmostEqual(result['correction_ms'],100,delta=20)
             self.assertAlmostEqual(result['voice_delay_ms'],480,delta=20)
 
     @unittest.skipUnless(shutil.which('ffmpeg'),'ffmpeg is optional on test hosts')
@@ -97,13 +98,21 @@ class ObsSyncTests(unittest.TestCase):
             dry=decode(ffmpeg,str(files[1]),0)
             result=analyze_stems(beep,dry,wet,380,380,0,dry_is_local=True)
             self.assertEqual(result['matched'],8)
-            self.assertAlmostEqual(result['correction_ms'],120,delta=20)
+            self.assertAlmostEqual(result['correction_ms'],100,delta=20)
             request=dict(mode='analyze',ffmpeg=ffmpeg,recording=str(recording),dry_file=str(files[1]),music_offset_ms=380,fixed_ms=380,correction_ms=0)
             script=Path(__file__).resolve().parents[1]/'backend'/'obs_sync.py'
             process=subprocess.run([sys.executable,'-I','-u',str(script)],input=json.dumps(request)+'\n',text=True,capture_output=True,encoding='utf8',timeout=20)
             self.assertEqual(process.returncode,0,process.stderr)
             event=json.loads(process.stdout.strip());self.assertEqual(event['phase'],'completed')
-            self.assertAlmostEqual(event['correction_ms'],120,delta=20)
+            self.assertAlmostEqual(event['correction_ms'],100,delta=20)
+
+    def test_consistent_late_delivery_is_not_counted_as_device_latency(self):
+        for jitter in ([.2]*8, [-.2]*8, [0,.25,-.2,.1,0,.2,-.15,.1]):
+            result=analyze_stems(*stems(jitter=jitter),380,380,0)
+            self.assertEqual(result['method'],'voice-pair')
+            self.assertAlmostEqual(result['voice_delay_ms'],480,delta=10)
+            self.assertAlmostEqual(result['correction_ms'],100,delta=10)
+            self.assertLess(result['spread_ms'],10)
 
     def test_player_records_selected_mic_on_output_clock_with_three_count_in_and_eight_beats(self):
         outputs=[]

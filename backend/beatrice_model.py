@@ -807,7 +807,7 @@ class PitchEstimator(nn.Module):
         dump_layer(self.backbone, f)
         dump_layer(self.head, f)
 
-def overlap_add(ir_amp: torch.Tensor, ir_phase: torch.Tensor, window: torch.Tensor, pitch: torch.Tensor, hop_length: int=240, delay: int=0, sr: float=24000.0) -> torch.Tensor:
+def overlap_add(ir_amp: torch.Tensor, ir_phase: torch.Tensor, window: torch.Tensor, pitch: torch.Tensor, hop_length: int=240, delay: int=0, sr: float=24000.0, excitation_state=None) -> torch.Tensor:
     batch_size, ir_length, length = ir_amp.size()
     ir_length = (ir_length - 1) * 2
     assert ir_phase.size() == ir_amp.size()
@@ -815,9 +815,12 @@ def overlap_add(ir_amp: torch.Tensor, ir_phase: torch.Tensor, window: torch.Tens
     assert pitch.size() == (batch_size, length * hop_length)
     assert 0 <= delay < ir_length, (delay, ir_length)
     normalized_freq = pitch / sr
-    normalized_freq[:, 0] = torch.rand(batch_size, device=pitch.device)
     with torch.amp.autocast('cuda', enabled=False):
-        phase = (normalized_freq.double().cumsum_(1) % 1.0).float()
+        if excitation_state is None:
+            normalized_freq[:, 0] = torch.rand(batch_size, device=pitch.device)
+            phase = (normalized_freq.double().cumsum_(1) % 1.0).float()
+        else:
+            phase = excitation_state.phase(normalized_freq)
     indices0, indices1 = torch.nonzero(phase[:, :-1] > phase[:, 1:], as_tuple=True)
     numer = 1.0 - phase[indices0, indices1]
     fractional_part = numer / (numer + phase[indices0, indices1 + 1])
@@ -835,10 +838,12 @@ def overlap_add(ir_amp: torch.Tensor, ir_phase: torch.Tensor, window: torch.Tens
     overlap_added_signal = overlap_added_signal[:, delay:-ir_length + delay]
     return overlap_added_signal
 
-def generate_noise(aperiodicity: torch.Tensor, delay: int=0) -> tuple[torch.Tensor, torch.Tensor]:
+def generate_noise(aperiodicity: torch.Tensor, delay: int=0, excitation_state=None) -> tuple[torch.Tensor, torch.Tensor]:
     batch_size, hop_length, length = aperiodicity.size()
-    excitation = torch.rand(batch_size, (length + 1) * hop_length, device=aperiodicity.device)
-    excitation -= 0.5
+    if excitation_state is None:
+        excitation = torch.rand(batch_size, (length + 1) * hop_length, device=aperiodicity.device) - .5
+    else:
+        excitation = excitation_state.noise(batch_size, (length + 1) * hop_length, aperiodicity.device)
     n_fft = 2 * hop_length
     noise = torch.stft(excitation, n_fft=n_fft, hop_length=hop_length, window=torch.ones(n_fft, device=excitation.device), center=False, return_complex=True)
     assert noise.size(2) == aperiodicity.size(2)
@@ -1089,7 +1094,7 @@ class Vocoder(nn.Module):
         self.post_filter_generator_post = WSConv1d(channels, 512, 1, bias=False)
         self.register_buffer('post_filter_scale', torch.tensor(0.01))
 
-    def forward(self, x: torch.Tensor, pitch: torch.Tensor, speaker_embedding: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    def forward(self, x: torch.Tensor, pitch: torch.Tensor, speaker_embedding: torch.Tensor, excitation_state=None) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         batch_size, _, length = x.size()
         x = self.prenet(x, speaker_embedding)
         ir = self.ir_generator(x)
@@ -1100,12 +1105,12 @@ class Vocoder(nn.Module):
         ir_phase = F.pad(ir[:, ir.size(1) // 2 + 1:, :], (0, 0, 1, 1))
         ir_phase[:, 1::2, :] += math.pi
         pitch = torch.repeat_interleave(pitch, self.hop_length, dim=1)
-        periodic_signal = overlap_add(ir_amp, ir_phase, self.ir_window, pitch, self.hop_length, delay=0, sr=self.out_sample_rate)
+        periodic_signal = overlap_add(ir_amp, ir_phase, self.ir_window, pitch, self.hop_length, delay=0, sr=self.out_sample_rate, excitation_state=excitation_state)
         aperiodicity = self.aperiodicity_generator(x)
         aperiodicity = F.silu(aperiodicity, inplace=True)
         aperiodicity = self.aperiodicity_generator_post(aperiodicity)
         aperiodicity *= self.aperiodicity_scale
-        aperiodic_signal, noise_excitation = generate_noise(aperiodicity, delay=0)
+        aperiodic_signal, noise_excitation = generate_noise(aperiodicity, delay=0, excitation_state=excitation_state)
         post_filter = self.post_filter_generator(x)
         post_filter = F.silu(post_filter, inplace=True)
         post_filter = self.post_filter_generator_post(post_filter)
@@ -1251,7 +1256,7 @@ class ConverterNetwork(nn.Module):
         cache[key] = resampler
         return resampler
 
-    def forward(self, x: torch.Tensor, target_speaker_id: torch.Tensor, formant_shift_semitone: torch.Tensor, pitch_shift_semitone: Optional[torch.Tensor]=None, slice_start_indices: Optional[torch.Tensor]=None, slice_segment_length: Optional[int]=None, return_stats: bool=False) -> Union[torch.Tensor, tuple[torch.Tensor, dict[str, float]]]:
+    def forward(self, x: torch.Tensor, target_speaker_id: torch.Tensor, formant_shift_semitone: torch.Tensor, pitch_shift_semitone: Optional[torch.Tensor]=None, slice_start_indices: Optional[torch.Tensor]=None, slice_segment_length: Optional[int]=None, return_stats: bool=False, excitation_state=None) -> Union[torch.Tensor, tuple[torch.Tensor, dict[str, float]]]:
         batch_size, _, _ = x.size()
         self.vq.set_target_speaker_ids(target_speaker_id)
         with torch.inference_mode():
@@ -1341,7 +1346,7 @@ class ConverterNetwork(nn.Module):
             x = slice_segments(x, slice_start_indices, slice_segment_length)
         x = F.silu(x, inplace=True)
         speaker_embedding = self.key_value_speaker_embedding(target_speaker_id).view(batch_size, self.key_value_speaker_embedding_length, self.key_value_speaker_embedding_channels)
-        y_g_hat, stats = self.vocoder(x, pitch, speaker_embedding)
+        y_g_hat, stats = self.vocoder(x, pitch, speaker_embedding, excitation_state=excitation_state)
         stats['pitch'] = pitch
         if return_stats:
             return (y_g_hat, stats)

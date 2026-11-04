@@ -2,10 +2,11 @@ const {WebSocketServer}=require('ws');
 const {createHash}=require('node:crypto');
 const hash=value=>createHash('sha256').update(value).digest('base64');
 class ObsServer{
- constructor({password='fixture-password',auth=true}={}){
+ constructor({password='fixture-password',auth=true,port=0}={}){
   this.password=password;this.auth=auth;this.records=[];this.connections=0;this.ignore='';this.delayGet=0;
   this.inputs=[{inputName:'デスクトップ音声',inputUuid:'desktop',offset:23},{inputName:'伴奏ブラウザー',inputUuid:'music',offset:35},{inputName:'変換音声',inputUuid:'voice',offset:0},{inputName:'映像のみ',inputUuid:'video',noAudio:true}];
-  this.server=new WebSocketServer({host:'127.0.0.1',port:0});
+  this.filters=new Map([['video',[]]]);
+  this.server=new WebSocketServer({host:'127.0.0.1',port});
   this.ready=new Promise(resolve=>this.server.once('listening',()=>{this.port=this.server.address().port;resolve(this);}));
   this.server.on('connection',socket=>{
    this.connections++;socket.send(JSON.stringify({op:0,d:{rpcVersion:1,obsWebSocketVersion:'5.6.0',...(auth?{authentication:{salt:'fixture-salt',challenge:'fixture-challenge'}}:{})}}));
@@ -18,8 +19,25 @@ class ObsServer{
     const input=this.inputs.find(input=>request.inputUuid?input.inputUuid===request.inputUuid:input.inputName===request.inputName);
     const handled=this.handleRequest?await this.handleRequest(type,request):null;
     if(handled){response=handled.response||{};code=handled.code||100;}
-    else if(type==='GetVersion')response={availableRequests:['GetInputAudioSyncOffset','SetInputAudioSyncOffset','GetInputList','GetSpecialInputs',...(this.extraRequests||[])]};
-    else if(type==='GetInputList')response={inputs:this.inputs.map(({inputName,inputUuid})=>({inputName,inputUuid}))};
+    else if(type==='GetVersion')response={availableRequests:['GetInputAudioSyncOffset','SetInputAudioSyncOffset','GetInputList','GetSpecialInputs','GetInputSettings','GetSourceFilterList','CreateSourceFilter','RemoveSourceFilter','SetSourceFilterEnabled',...(this.extraRequests||[])]};
+    else if(type==='GetInputList')response={inputs:this.inputs.map(({inputName,inputUuid,noAudio,inputKind})=>({inputName,inputUuid,inputKind:inputKind||(noAudio?'window_capture':'wasapi_output_capture')}))};
+    else if(type==='GetInputSettings'){if(!input)code=600;else response={inputKind:input.inputKind||(input.noAudio?'window_capture':'wasapi_output_capture'),inputSettings:{}};}
+    else if(['GetSourceFilterList','CreateSourceFilter','RemoveSourceFilter','SetSourceFilterEnabled'].includes(type)){
+     const source=this.inputs.find(item=>request.sourceUuid?item.inputUuid===request.sourceUuid:item.inputName===request.sourceName);
+     if(!source)code=600;
+     else{
+      const filters=this.filters.get(source.inputUuid)||[];this.filters.set(source.inputUuid,filters);
+      const filter=filters.find(item=>item.filterName===request.filterName);
+      if(type==='GetSourceFilterList')response={filters:structuredClone(filters)};
+      else if(type==='CreateSourceFilter'){
+       if(filter)code=601;
+       else if(!['gpu_delay',...(this.extraFilterKinds||[])].includes(request.filterKind)||request.filterSettings.delay_ms<0||request.filterSettings.delay_ms>500)code=402;
+       else filters.push({filterName:request.filterName,filterKind:request.filterKind,filterEnabled:true,filterSettings:structuredClone(request.filterSettings)});
+      }else if(!filter)code=600;
+      else if(type==='RemoveSourceFilter')this.filters.set(source.inputUuid,filters.filter(item=>item!==filter));
+      else filter.filterEnabled=request.filterEnabled;
+     }
+    }
     else if(type==='GetSpecialInputs')response={desktop1:'デスクトップ音声',desktop2:null,mic1:'変換音声',mic2:null};
     else if(type==='GetInputAudioSyncOffset'||type==='SetInputAudioSyncOffset'){
      if(!input)code=600;else if(input.noAudio)code=604;

@@ -22,20 +22,24 @@ class DirectGpuTests(unittest.TestCase):
             source_format='test identity'
             def infer(self, audio, **kwargs):
                 return torchaudio.functional.resample(torch.from_numpy(audio),16000,24000).numpy()
-        pipeline=BeatricePipeline({'input_gain':0,'gain':0},model=IdentityModel())
-        source=np.zeros(10*pipeline.block,np.float32)
-        impulse=6*pipeline.block+1000
-        source[impulse]=.5
-        results=[];lookbacks=[]
-        for start in range(0,len(source),pipeline.block):
-            results.append(pipeline.convert(source[start:start+pipeline.block]))
-            lookbacks.append(pipeline.stats['lookback_ms'])
-        output=np.concatenate(results)
-        observed=int(np.argmax(np.abs(output)))
-        lookback=lookbacks[observed//pipeline.block]
-        for schedule in (160,320):
-            observed_latency=(observed-impulse)/48+schedule+54
-            self.assertAlmostEqual(estimate_latency_ms(schedule,lookback,54),observed_latency,delta=.25)
+        for fixed in (False,True):
+            with self.subTest(fixed=fixed):
+                pipeline=BeatricePipeline({'input_gain':0,'gain':0,'singing_enabled':fixed},model=IdentityModel())
+                source=np.zeros(10*pipeline.block,np.float32)
+                impulse=6*pipeline.block+1000
+                source[impulse]=.5
+                results=[];lookbacks=[]
+                for start in range(0,len(source),pipeline.block):
+                    results.append(pipeline.convert(source[start:start+pipeline.block]))
+                    lookbacks.append(pipeline.stats['lookback_ms'])
+                output=np.concatenate(results)
+                observed=int(np.argmax(np.abs(output)))
+                lookback=lookbacks[observed//pipeline.block]
+                for schedule in (160,320):
+                    observed_latency=(observed-impulse)/48+schedule+54
+                    self.assertAlmostEqual(estimate_latency_ms(schedule,lookback,54),observed_latency,delta=.25)
+                if fixed:
+                    self.assertAlmostEqual((observed-impulse)/48,pipeline.fixed_lookback_ms,delta=.25)
         self.assertIsNone(estimate_latency_ms(160,65,float('nan')))
 
     def test_explicit_gpu_index_is_used_and_failure_does_not_switch_devices(self):

@@ -2,9 +2,12 @@ const fs=require('node:fs'),path=require('node:path'),{randomUUID}=require('node
 const {normalize}=require('./config.cjs');
 const {effectDefaults}=require('./singing-config.cjs');
 const {obsDefaults}=require('./obs-config.cjs');
+const {mixDefaults}=require('./mix-config.cjs');
 const keys=['beatrice_model','beatrice_voice','beatrice_model_alias','beatrice_model_icon','beatrice_pitch','beatrice_formant',
  'input','output','input_name','output_name','input_gain','gain','compute','singing_enabled','singing_latency_ms',
- ...Object.keys(effectDefaults),...Object.keys(obsDefaults)];
+ ...Object.keys(effectDefaults),...Object.keys(obsDefaults),...Object.keys(mixDefaults)];
+const requiredKeys=keys.filter(key=>!Object.hasOwn(mixDefaults,key)&&
+ !['obs_video_enabled','obs_video_sources','obs_video_correction_ms','obs_delay_manual','obs_path_delay_ms','obs_path_signature'].includes(key));
 function snapshot(config){
  if(!config||typeof config!=='object'||Array.isArray(config))throw Error('保存する設定が正しくありません。');
  const clean=normalize({...config,engine_version:2});return Object.fromEntries(keys.map(key=>[key,clean[key]]));
@@ -24,7 +27,7 @@ class Presets{
     if(!item||typeof item.id!=='string'||!item.id||ids.has(item.id))throw Error('Invalid preset');
     const name=presetName(item.name),key=name.toLocaleLowerCase();
     if(names.has(key))throw Error('Duplicate preset');ids.add(item.id);names.add(key);
-    if(!item.settings||typeof item.settings!=='object'||Array.isArray(item.settings)||keys.some(key=>!Object.hasOwn(item.settings,key)))throw Error('Incomplete preset');
+    if(!item.settings||typeof item.settings!=='object'||Array.isArray(item.settings)||requiredKeys.some(key=>!Object.hasOwn(item.settings,key)))throw Error('Incomplete preset');
     return {id:item.id,name,settings:snapshot(item.settings)};
    });
    if(typeof data.active==='string'&&ids.has(data.active))this.active=data.active;
@@ -33,7 +36,8 @@ class Presets{
  check(){if(this.error)throw Error(this.error);}
  list(config){this.check();const current=config?snapshot(config):null;return this.items.map(({id,name,settings})=>({id,name,...(current?{active:this.active===id&&keys.every(key=>{
   if((key==='input'&&settings.input_name&&current.input_name)||(key==='output'&&settings.output_name&&current.output_name))return true;
-  return settings[key]===current[key];
+  if(current.obs_delay_manual&&settings.obs_delay_manual&&['singing_latency_ms','obs_correction_ms'].includes(key))return current.singing_latency_ms+current.obs_correction_ms===settings.singing_latency_ms+settings.obs_correction_ms;
+  return key==='obs_video_sources'?JSON.stringify(settings[key])===JSON.stringify(current[key]):settings[key]===current[key];
  })}:{})}));}
  get(id){this.check();const item=this.items.find(item=>item.id===id);if(!item)throw Error('プリセットが見つかりません。');return item;}
  write(items,active=this.active){

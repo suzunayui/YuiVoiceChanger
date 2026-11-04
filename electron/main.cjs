@@ -7,6 +7,7 @@ const os = require('node:os');
 const {EventEmitter}=require('node:events');
 const {normalize,liveControls} = require('./config.cjs');
 const {ModelHistory} = require('./model-history.cjs');
+const {installObsPlugin} = require('./obs-plugin-install.cjs');
 const ROOT = path.resolve(__dirname,'..');
 const ENGINE_ROOT = require('./paths.cjs').engineRoot(ROOT,process.resourcesPath,app.isPackaged);
 const HOME = process.env.YVC_DESKTOP_HOME || path.join(os.homedir(),'.YuiVoiceChanger');
@@ -14,13 +15,13 @@ if(process.env.YVC_DESKTOP_HOME)app.setPath('userData',path.join(HOME,'electron-
 const CONFIG = path.join(HOME,'desktop.json');
 const LEGACY_CONFIG = path.join(process.env.LOCALAPPDATA || app.getPath('userData'),'YuiVoiceChanger','desktop.json');
 let window,worker,workerPython,connecting,quitting=false,settingUp=false;
+let installingObsPlugin=false;
 let engineState='stopped',startToken=0;
 let presetSwitching=false,presetAbort;
 const engineEvents=new EventEmitter();
 const workerStops=new WeakMap();
 let officialAbort=null,officialTask=null;
 let iconDirectory,audioDevices;
-let lastMetrics={};
 const training=new (require('./training.cjs').TrainingManager)(HOME,ENGINE_ROOT,send);
 function read(file) {try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return {};}}
 function pickerDirectory(value){
@@ -37,52 +38,41 @@ const source=!process.env.YVC_DESKTOP_HOME&&!fs.existsSync(CONFIG)?LEGACY_CONFIG
 const saved=read(source);
 const modelHistory=new ModelHistory(HOME);
 const presets=new (require('./presets.cjs').Presets)(HOME);
-const obs=new (require('./obs-link.cjs').ObsLink)({notify:send,credentials:require('./obs-password.cjs').passwordStore(HOME,safeStorage)});
+const obs=new (require('./obs-link.cjs').ObsLink)({home:HOME,notify:send,credentials:require('./obs-password.cjs').passwordStore(HOME,safeStorage)});
 let config,configError;
 try {config=normalize(saved);} catch(e) {config=normalize({});configError=e.message;}
-const calibration=new (require('./latency-calibration.cjs').LatencyCalibration)({engineRoot:ENGINE_ROOT,notify:send,beforeStart:async()=>{if(connecting)await connecting;await stopWorker();},onComplete:result=>save({...config,singing_enabled:true,singing_latency_ms:result.recommended_ms})});
-const obsSync=new (require('./obs-sync.cjs').ObsSync)({home:HOME,engineRoot:ENGINE_ROOT,obs,notify:send,isRunning:()=>engineState==='running',getMetrics:()=>lastMetrics,
- prepareEngine:async(next,signal)=>{
-  const abort=()=>{void stopWorker();};signal.addEventListener('abort',abort,{once:true});
-  try{
-   if(engineState==='running'&&next.singing_enabled!==config.singing_enabled)await stopPresetEngine(true,signal);
-   if(signal.aborted||quitting)throw Error('測定を中止しました。');
-   save(next,{obsSyncPreparation:true});send({type:'obs-sync',...obsSync.status(),config});
-   if(engineState!=='running'){
-    obsSync.update({message:'声変換を起動しています…'});
-    await startPresetEngine(signal,'OBSの同期測定');
-   }
-  }catch(error){
-   if(signal.aborted||engineState==='loading'){await stopWorker();send({type:'state',state:'stopped'});}
-   throw error;
-  }finally{signal.removeEventListener('abort',abort);}
- },onComplete:result=>{if(engineState!=='running')throw Error('声変換が停止したため補正を保存しません。');return save({...config,obs_correction_ms:result.correction_ms});}});
+const calibration=new (require('./latency-calibration.cjs').LatencyCalibration)({engineRoot:ENGINE_ROOT,notify:send,beforeStart:async()=>{if(connecting)await connecting;await stopWorker();},onComplete:result=>{const next=save({...config,singing_enabled:true,singing_latency_ms:result.recommended_ms,obs_delay_manual:false});result.total_delay_ms=require('./obs-config.cjs').offsetFor(next);return next;}});
+const obsSync=new (require('./obs-sync.cjs').ObsSync)({home:HOME,engineRoot:ENGINE_ROOT,obs,notify:send});
 if(saved.engine_version!==2&&Object.keys(saved).length&&fs.existsSync(source)){
  fs.mkdirSync(HOME,{recursive:true});
  const backup=path.join(HOME,'desktop-before-direct-gpu.json');
  if(!fs.existsSync(backup))fs.copyFileSync(source,backup);
 }
 function send(event){
- if(event.type==='metrics')lastMetrics=event;
  if(event.type==='devices')audioDevices=event.devices;
- if(event.type==='state'){engineState=event.state;obs.configure(config,engineState==='running');}
+ if(event.type==='state'&&event.state==='running'&&event.manual_timing){
+  const next=require('./manual-delay.cjs').adoptManualTiming(config,event.manual_timing);
+  if(next){try{event={...event,config:save(next,{engineTiming:true})};}catch(error){send({type:'error',message:'遅延設定の保存に失敗しました。'+error.message});event={...event,config};}}
+ }
+ if(event.type==='state'){engineState=event.state;obs.configure({...config,obs_enabled:false},engineState==='running');}
  if(window&&!window.isDestroyed())window.webContents.send('engine-event',event);
  engineEvents.emit('event',event);
 }
 function publishPresets(){try{send({type:'presets',items:presets.list(config)});}catch{}}
-function save(next,{preset=false,obsSyncPreparation=false}={}){
+function save(next,{preset=false,engineTiming=false}={}){
  const clean=normalize(next);
- if(calibration.busy&&Object.keys(clean).some(key=>clean[key]!==config[key]))throw Error('自動設定の測定が終わるまでお待ちください。');
- if(obsSync.busy&&!obsSyncPreparation&&Object.keys(clean).some(key=>clean[key]!==config[key]))throw Error('OBSの同期測定が終わるまでお待ちください。');
+ if(!engineTiming&&calibration.busy&&Object.keys(clean).some(key=>clean[key]!==config[key]))throw Error('自動設定の測定が終わるまでお待ちください。');
+ if(!engineTiming&&obsSync.busy&&Object.keys(clean).some(key=>clean[key]!==config[key]))throw Error('OBSの同期測定が終わるまでお待ちください。');
  if(!preset&&engineState!=='stopped'&&require('./obs-config.cjs').obsConnectionKeys.some(key=>config[key]!==clean[key]))throw Error('変換を停止してからOBSのポート・伴奏ソースを変更してください。');
- const controls=liveControls(config,clean,engineState);
+ const controls=engineTiming?null:liveControls(config,clean,engineState);
  if(controls){
   const keys=Object.keys(require('./singing-config.cjs').effectDefaults);
   const effects=keys.some(key=>config[key]!==clean[key])?Object.fromEntries(keys.map(key=>[key,clean[key]])):undefined;
   request('update-controls',{controls,...(effects?{effects}:{})});
+  if(clean.mix_music_gain!==config.mix_music_gain)request('update-mix',{gain:clean.mix_music_gain});
  }
  config=clean;
- obs.configure(config,engineState==='running');
+ obs.configure({...config,obs_enabled:false},engineState==='running');
  fs.mkdirSync(HOME,{recursive:true});
  const tmp=CONFIG+'.tmp';fs.writeFileSync(tmp,JSON.stringify(config,null,2));fs.renameSync(tmp,CONFIG);
  if(modelHistory.remember(config))send({type:'model-history',models:modelHistory.list()});
@@ -223,21 +213,17 @@ else {
    if(obsSync.busy&&!['config','obs-sync-status','obs-sync-cancel','obs-status','presets','model-icon','read-help','open-help-link','training-status','latency-calibration-status','stop'].includes(action))throw Error('OBSの同期測定が終わるまでお待ちください。');
    if(presetSwitching&&!['config','presets','model-icon','read-help','open-help-link','training-status','latency-calibration-status','obs-status','obs-sync-status','obs-sync-info','stop'].includes(action))throw Error('プリセットを切り替えています。完了までお待ちください。');
    if(action==='config')return config;
-   if(action==='obs-sync-status')return obsSync.status();
-   if(action==='obs-sync-info')return obsSync.info();
-   if(action==='obs-sync-start'){
-    if(settingUp||training.busy||calibration.busy||presetSwitching||!['stopped','running'].includes(engineState))throw Error('準備・停止・学習・自動設定が終わるまでお待ちください。');
-    if(!payload||typeof payload!=='object')throw Error('測定する声ソースを選んでください。');
-    const next=normalize({...payload.config,singing_enabled:true,obs_enabled:true});
-    if(!next.python||!next.beatrice_model||next.input<0||next.output<0)throw Error('モデル・マイク・出力先と変換環境を設定してください。');
-    obsSync.validateStart(next,payload,{requireRunning:false});
-    return obsSync.start(next,payload,{prepare:true});
+   if(action==='install-obs-plugin'){
+    if(installingObsPlugin)throw Error('OBSプラグインを導入中です。');
+    installingObsPlugin=true;
+    try{
+     return await installObsPlugin(path.join(app.isPackaged?process.resourcesPath:ROOT,'obs-plugin','yui-live-preview.dll'));
+    }finally{installingObsPlugin=false;}
    }
-   if(action==='obs-sync-cancel')return obsSync.cancel();
-   if(action==='obs-sync-recover')return obsSync.recover();
-   if(action==='obs-sync-pick-ffmpeg'){
-    const picked=await dialog.showOpenDialog(window,{properties:['openFile'],filters:process.platform==='darwin'?undefined:[{name:'ffmpeg.exe',extensions:['exe']}]});
-    return picked.canceled?obsSync.info():obsSync.setFfmpeg(picked.filePaths[0]);
+   if(action==='obs-sync-info')return {recovery:fs.existsSync(obsSync.journalFile)};
+   if(action==='obs-sync-recover'){
+    if(engineState!=='stopped')throw Error('声変換を停止してから復元してください。');
+    await obsSync.recover();return {recovery:false};
    }
    if(action==='presets')return presets.list(config);
    if(action==='save-preset'){
@@ -254,13 +240,35 @@ else {
    }
    if(action==='latency-calibration-cancel')return calibration.cancel();
    if(action==='obs-status')return obs.status();
+   if(action==='set-singing-mode'){
+    if(typeof payload!=='boolean')throw Error('歌枠モードの指定が正しくありません。');
+    if(engineState!=='stopped')throw Error('声変換を停止してから歌枠モードに切り替えてください。');
+    const mix=payload&&process.platform==='win32';
+    if(mix&&!config.mix_enabled)await obs.confirmDesktopMute(async names=>{
+     if(engineState!=='stopped')throw Error('声変換を停止してから歌枠モードに切り替えてください。');
+     const {response}=await dialog.showMessageBox(window,{type:'question',title:'歌枠モード',
+      message:'音が二重にならないようにデスクトップ音声をオフにしますか？',
+      detail:`${names.join('、')} をOBSでミュートします。歌枠モードを解除すると元に戻します。`,
+      buttons:['はい','いいえ'],defaultId:1,cancelId:1,noLink:true});
+     return response===0;
+    });
+    try{
+     const next=save({...config,singing_enabled:payload,mix_enabled:mix});
+     if(!payload&&obs.desktopMute.pending&&obs.connection?.identified)await obs.releaseDesktopMute().catch(()=>{});
+     return {singing_enabled:next.singing_enabled,mix_enabled:next.mix_enabled};
+    }catch(error){
+     if(mix&&obs.keepDesktopMuted)await obs.releaseDesktopMute();
+     throw error;
+    }
+   }
    if(action==='obs-connect'){
+    if(config.mix_enabled&&engineState==='running'&&obs.connection?.identified)throw Error('MIXを停止してからOBSの接続設定を変更してください。');
     if(!payload||typeof payload!=='object'||!Number.isInteger(payload.port)||payload.port<1||payload.port>65535||typeof payload.password!=='string'||payload.password.length>1024||typeof payload.remember!=='boolean')throw Error('OBSの接続設定が正しくありません。');
     save({...config,obs_port:payload.port});
     return obs.connect(payload);
    }
    if(action==='obs-refresh')return obs.refresh();
-   if(action==='obs-disconnect'){save({...config,obs_enabled:false});return obs.disconnect();}
+   if(action==='obs-disconnect')return obs.disconnect();
    if(action==='model-history'){modelHistory.remember(config);return modelHistory.list();}
    if(['add-library-model','edit-library-model','remove-library-model','pick-library-icon'].includes(action)){
     const check=()=>{if(settingUp||training.busy||calibration.busy||engineState!=='stopped')throw Error('変換や学習を停止してからモデル一覧を変更してください。');};
@@ -417,6 +425,7 @@ else {
     const result=await dialog.showOpenDialog(window,{defaultPath:pickerDirectory(config[payload]),properties:['openFile'],filters:payload==='python'&&process.platform==='darwin'?undefined:[{name:payload==='python'?'Python':'音声モデル',extensions:payload==='python'?['exe']:['gz','pt','toml','bin','pth','onnx']}]});
     return result.canceled?null:result.filePaths[0];
    }
+   if(action==='mix-devices'){if(!config.python)return;await boot();request('mix-devices');return;}
    if(action==='devices'||action==='connect'){
     if(settingUp||!config.python)return;
     await boot();request('devices');return;
@@ -436,7 +445,6 @@ else {
     }catch(e){send({type:'state',state:'stopped'});throw e;}
    }
    if(action==='stop'){
-    if(obsSync.busy)obsSync.cancel();
     ++startToken;
     if(presetSwitching){presetAbort?.abort();await stopWorker();send({type:'state',state:'stopped'});return;}
     if(connecting){send({type:'state',state:'stopped'});return;}
@@ -445,7 +453,11 @@ else {
    throw Error('Unknown action');
   });
   window.loadFile(path.join(ROOT,'renderer-dist','index.html'));
-  window.webContents.once('did-finish-load',()=>{if(configError)send({type:'error',message:configError});obs.configure(config,false);});
+  window.webContents.once('did-finish-load',()=>{
+   if(configError)send({type:'error',message:configError});
+   obs.configure({...config,obs_enabled:false},false);
+   void obs.flush().catch(()=>{});
+  });
  });
  app.on('before-quit',event=>{
   officialAbort?.abort();

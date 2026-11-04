@@ -87,7 +87,7 @@ class DirectModel:
         self.pitch_shift = torch.tensor([0.], device=self.device)
         self.device_name = torch.cuda.get_device_name(self.device) if self.device.type=='cuda' else 'CPU'
 
-    def infer(self, audio16k, shift=14., formant=0., seed=42):
+    def infer(self, audio16k, shift=14., formant=0., seed=42, excitation_state=None):
         import torch
         audio16k = np.asarray(audio16k, dtype=np.float32)
         if audio16k.ndim != 1 or len(audio16k) < 160 or not np.isfinite(audio16k).all():
@@ -99,13 +99,14 @@ class DirectModel:
         if len(audio16k) % 160:
             audio16k = np.pad(audio16k, (0, -len(audio16k) % 160))
         with torch.inference_mode():
-            # Keep the approved prototype's vocoder noise seed policy.
-            # Attention dropout itself is disabled in eval mode.
+            # Preserve the batch seed; fixed-position streaming uses its own
+            # continuous excitation state. Attention dropout stays disabled.
             torch.manual_seed(seed)
             self.pitch_shift.fill_(shift)
             self.formant.fill_(formant)
             source = torch.from_numpy(np.ascontiguousarray(audio16k))[None, None].to(self.device)
-            y = self.net(source, self.speaker, self.formant, pitch_shift_semitone=self.pitch_shift)
+            y = self.net(source, self.speaker, self.formant, pitch_shift_semitone=self.pitch_shift,
+                         **({'excitation_state': excitation_state} if excitation_state is not None else {}))
             result = y[0, 0].cpu().numpy()
         if not np.isfinite(result).all():
             raise RuntimeError('モデルの出力に非有限値があります。')
@@ -182,8 +183,13 @@ class BeatricePipeline:
         self.input_gain, self.output_gain = 10**(controls['input_gain']/20), 10**(controls['gain']/20)
 
     def reset(self):
+        from backend.streaming_excitation import StreamingExcitation
         self.history = np.zeros(self.history_samples, np.float32)
         self.joiner.reset()
+        # Vocoder post filtering advances its excitation by 120 samples at 24 kHz.
+        # Anchor at the centre of the audible overlap, with no waveform time shift.
+        anchor_from_end = self.guard24 + (self.block+self.overlap48+self.search48)//2 - self.search48//4 - self.overlap48//4 - 120
+        self.excitation_state = StreamingExcitation(self.block//2, anchor_from_end) if self.fixed_alignment else None
 
     def restore_budget(self, block_seconds):
         """Reuse the measured CPU/GPU block size without warming the model again."""
@@ -221,7 +227,8 @@ class BeatricePipeline:
         self.previous_input_gain = self.input_gain
         with torch.inference_mode():
             source16 = self.down(torch.from_numpy(self.history)).numpy()
-            result24 = self.model.infer(source16, shift=self.pitch, formant=self.formant)
+            result24 = self.model.infer(source16, shift=self.pitch, formant=self.formant,
+                **({'excitation_state': self.excitation_state} if self.excitation_state is not None else {}))
             candidate24 = (self.block+self.overlap48+self.search48)//2
             stop = len(result24)-self.guard24
             start = stop-candidate24

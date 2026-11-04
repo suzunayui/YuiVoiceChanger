@@ -3,7 +3,7 @@ import copy
 import unittest
 import numpy as np
 from backend.vocal_effects import VocalEffects, EFFECT_DEFAULTS, normalize_effects
-from backend.singing import singing_settings, output_schedule
+from backend.singing import singing_settings, output_schedule, resolve_fixed_timing, latency_signature
 from backend.direct_gpu import AlignedOverlap
 from backend.scheduled_audio import ScheduledAudio
 
@@ -22,6 +22,54 @@ def render(audio, settings, sizes=(3840,)):
 
 
 class SingingEffectsTests(unittest.TestCase):
+    def test_manual_total_overrides_old_correction_without_removing_processing_reserve(self):
+        original = dict(singing_enabled=True, singing_latency_ms=200, obs_correction_ms=300, obs_delay_manual=True)
+        adjusted, timing = resolve_fixed_timing(original, 120, 65, 20)
+        self.assertEqual((adjusted['singing_latency_ms'], adjusted['obs_correction_ms']), (500, 0))
+        self.assertEqual(adjusted['singing_latency_ms']+adjusted['obs_correction_ms'], 500)
+        self.assertEqual(timing['previous_base_ms'], 200)
+        self.assertEqual(timing['previous_correction_ms'], 300)
+        self.assertEqual(original['singing_latency_ms'], 200)
+        self.assertEqual(output_schedule(adjusted, 120, 65, 20), 415)
+        self.assertEqual(resolve_fixed_timing(adjusted, 120, 65, 20), (adjusted, None))
+        with self.assertRaisesRegex(ValueError, '330ms以上'):
+            resolve_fixed_timing({**original, 'obs_correction_ms': 0}, 120, 65, 20)
+        legacy = {**original, 'obs_delay_manual': False}
+        migrated, event = resolve_fixed_timing(legacy, 120, 65, 20)
+        self.assertEqual((migrated['singing_latency_ms'], migrated['obs_correction_ms']), (430, 0))
+        self.assertTrue(event['legacy_timing'])
+        self.assertEqual(resolve_fixed_timing({**original, 'singing_enabled': False}, 120, 65, 20)[1], None)
+
+    def test_old_690ms_correction_does_not_impose_a_970ms_floor_on_gpu(self):
+        legacy = dict(singing_enabled=True, singing_latency_ms=200, obs_correction_ms=690, compute='cuda:0')
+        migrated, timing = resolve_fixed_timing(legacy, 80, 65, 55)
+        self.assertEqual((migrated['singing_latency_ms'], migrated['obs_correction_ms']), (380, 0))
+        self.assertTrue(migrated['obs_delay_manual'])
+        self.assertTrue(timing['legacy_timing'])
+        self.assertEqual(timing['previous_correction_ms'], 690)
+        self.assertEqual(output_schedule(migrated, 80, 65, 55), 260)
+        self.assertEqual(resolve_fixed_timing(migrated, 80, 65, 55), (migrated, None))
+        with self.assertRaises(ValueError) as failure:
+            resolve_fixed_timing({**legacy, 'obs_delay_manual': True, 'obs_correction_ms': 0}, 80, 65, 55)
+        self.assertIn('280ms以上', str(failure.exception))
+        self.assertNotIn('GPU', str(failure.exception))
+
+    def test_calibrated_target_changes_voice_reservation_and_invalidates_on_route_change(self):
+        config = dict(singing_enabled=True, singing_latency_ms=500, obs_correction_ms=0, obs_delay_manual=True,
+                      obs_path_delay_ms=139, input_name='Mic', output_name='Cable', beatrice_model='声.pt.gz')
+        config['obs_path_signature'] = latency_signature(config)
+        adjusted, _ = resolve_fixed_timing(config, 80, 65, 20)
+        self.assertEqual((adjusted['singing_latency_ms'], adjusted['obs_correction_ms']), (361, 139))
+        self.assertEqual(output_schedule(adjusted, 80, 65, 20)+65+20+139, 500)
+        # Move the total to 600ms: voice output must also move by 100ms.
+        moved, _ = resolve_fixed_timing({**adjusted, 'obs_correction_ms': 239}, 80, 65, 20)
+        self.assertEqual(moved['singing_latency_ms'], 461)
+        self.assertEqual(moved['obs_correction_ms'], 139)
+        with self.assertRaisesRegex(ValueError, '389ms以上'):
+            resolve_fixed_timing({**config, 'singing_latency_ms': 200}, 80, 65, 20)
+        changed, _ = resolve_fixed_timing({**config, 'output_name': 'Other cable'}, 80, 65, 20)
+        self.assertEqual((changed['singing_latency_ms'], changed['obs_correction_ms']), (500, 0))
+
     def test_disabled_is_bit_exact_and_validation_is_strict(self):
         source = np.random.default_rng(2).uniform(-1, 1, 3840).astype(np.float32)
         np.testing.assert_array_equal(VocalEffects().process(source, EFFECT_DEFAULTS), source)
@@ -39,6 +87,9 @@ class SingingEffectsTests(unittest.TestCase):
         self.assertEqual(output_schedule({}, 320, 65, 20), 640)
         with self.assertRaisesRegex(ValueError, '730ms以上'):
             output_schedule(config, 320, 65, 20)
+        with self.assertRaisesRegex(ValueError, '730ms以上'):
+            output_schedule({**config, 'obs_correction_ms': 139}, 320, 65, 20)
+        self.assertEqual(output_schedule({**config, 'obs_correction_ms': 139}, 80, 65, 20), schedule)
         buffer = ScheduledAudio()
         block, delay = 3840, round(schedule*48)
         expected = np.zeros(40000, np.float32)

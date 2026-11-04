@@ -47,6 +47,19 @@ async function until(predicate){for(let count=0;count<150;count++){if(predicate(
   const openServer=await new ObsServer({auth:false}).ready,openLink=new ObsLink({timeout:250});
   try{openLink.configure(normalize({obs_port:openServer.port}),false);await openLink.connect({port:openServer.port,password:'',remember:false});assert.equal(openLink.status().state,'connected');assert.equal(openServer.writes().length,0);}
   finally{await openLink.shutdown();await openServer.close();}
+  const startup=new ObsLink({credentials:{load:()=>'late-password',available:()=>true},timeout:250,reconnectDelay:50});
+  let lateServer;
+  try{
+   startup.configure(normalize({obs_port:openServer.port}),false);
+   await assert.rejects(startup.flush());
+   lateServer=await new ObsServer({port:openServer.port,password:'late-password'}).ready;
+   await until(()=>startup.status().state==='connected');
+   assert.equal(lateServer.writes().length,0);
+   await startup.disconnect();
+   const connections=lateServer.connections;
+   await startup.flush();await delay(160);
+   assert.equal(lateServer.connections,connections);
+  }finally{await startup.shutdown();if(lateServer)await lateServer.close();}
   console.log('PASS actual WebSocket auth/RPC, audio source filtering, fixed+correction, no repeated writes, UUID rename, restore, external edits, reconnect/kick, stale updates, timeouts, validation and password storage');
  }finally{await link.shutdown();await server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

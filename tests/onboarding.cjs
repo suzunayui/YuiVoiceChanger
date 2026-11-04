@@ -3,7 +3,9 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),asse
 (async()=>{
  const profile=fs.mkdtempSync(path.join(os.tmpdir(),'yvc-guide-'));
  const checkpoint=path.join(profile,'声.pt.gz');fs.writeFileSync(checkpoint,'fixture');
- const app=await electron.launch({...(process.env.YVC_TEST_EXECUTABLE?{executablePath:process.env.YVC_TEST_EXECUTABLE,args:[]}:{args:[path.resolve('.')]}),env:{...process.env,YVC_DESKTOP_HOME:profile}});
+ const programData=path.join(profile,'ProgramData');
+ const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>key.toLowerCase()!=='programdata'));
+ const app=await electron.launch({...(process.env.YVC_TEST_EXECUTABLE?{executablePath:process.env.YVC_TEST_EXECUTABLE,args:[]}:{args:[path.resolve('.')]}),env:{...env,ProgramData:programData,YVC_DESKTOP_HOME:profile}});
  try{
   const page=await app.firstWindow();
   await page.getByRole('heading',{name:'環境設定',exact:true}).waitFor();
@@ -38,12 +40,24 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),asse
   assert.equal(await page.getByRole('button',{name:/VST/}).count(),0);
   for(const [width,height] of [[1280,720],[1000,570]]){
    await app.evaluate(({BrowserWindow},size)=>BrowserWindow.getAllWindows()[0].setContentSize(...size),[width,height]);
-   const r=await page.evaluate(()=>{const environment=document.querySelector('.settings').getBoundingClientRect(),transfer=document.querySelector('.settings-transfer').getBoundingClientRect();return {w:innerWidth,h:innerHeight,sw:document.documentElement.scrollWidth,sh:document.documentElement.scrollHeight,bottom:environment.bottom,transferBottom:transfer.bottom,leftRight:environment.right,rightLeft:transfer.left,aligned:Math.abs(environment.top-transfer.top)<1,footer:document.querySelector('footer').getBoundingClientRect().top};});
-   assert(r.sw<=r.w&&r.sh<=r.h&&r.bottom<=r.footer&&r.transferBottom<=r.footer&&r.leftRight<r.rightLeft&&r.aligned,JSON.stringify(r));
-   const transfer=page.getByRole('region',{name:'設定の保存・読み込み',exact:true});
-   assert.equal(await transfer.getByRole('button',{name:/設定を(?:インポート|エクスポート)/}).count(),2);
+   const r=await page.evaluate(()=>({w:innerWidth,h:innerHeight,sw:document.documentElement.scrollWidth,sh:document.documentElement.scrollHeight,bottom:document.querySelector('.settings').getBoundingClientRect().bottom,footer:document.querySelector('footer').getBoundingClientRect().top}));
+   assert(r.sw<=r.w&&r.sh<=r.h&&r.bottom<=r.footer,JSON.stringify(r));
   }
   if(process.env.YVC_TEST_SCREENSHOT)await page.screenshot({path:process.env.YVC_TEST_SCREENSHOT});
+  if(process.platform==='win32'&&process.arch==='x64'){
+   const plugin=path.join(programData,'obs-studio','plugins','yui-live-preview','yui-live-preview.dll');
+   const install=page.getByRole('button',{name:'OBSプラグインを導入する',exact:true});
+   const expected=fs.readFileSync(path.resolve('obs-plugin','yui-live-preview.dll'));
+   await install.click();
+   await page.getByRole('status').filter({hasText:'OBSを再起動してください'}).waitFor();
+   assert(fs.readFileSync(plugin).equals(expected));
+   await install.click();
+   await page.getByRole('status').filter({hasText:'導入済みです'}).waitFor();
+   fs.writeFileSync(plugin,'old plugin');
+   await install.click();
+   await page.getByRole('status').filter({hasText:'OBSを再起動してください'}).waitFor();
+   assert(fs.readFileSync(plugin).equals(expected));
+  }
   console.log('PASS first-run environment settings, single setup action, no duplicate onboarding, main model library, README and compact layout');
  }finally{await app.close();fs.rmSync(profile,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

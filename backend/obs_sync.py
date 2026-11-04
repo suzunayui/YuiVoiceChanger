@@ -7,6 +7,9 @@ import threading
 import time
 import wave
 import numpy as np
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 RATE = 16000
 
@@ -71,10 +74,6 @@ def analyze_stems(beep, dry, wet, music_offset_ms, fixed_ms, correction_ms, dry_
             _, index, value = min(candidates);used.add(index);paired_dry.append(value);paired_beeps.append(beat)
     if len(paired_dry) < 6: raise ValueError('拍に合う発声が足りません。カウントの後、8回の拍に合わせて短く「た」と発声してください。')
     dry_values = np.array(paired_dry);beep_values = np.array(paired_beeps)
-    rhythm = (dry_values-(beep_values-music_offset_ms/1000))*1000
-    rhythm_spread = float(np.median(np.abs(rhythm-np.median(rhythm))))
-    if rhythm_spread > 45 or np.ptp(rhythm) > 220:
-        raise ValueError('発声タイミングのばらつきが大きいため補正しません。一定の拍に合わせて再測定してください。')
     # Match the same utterances on both voice tracks. Full phrase coverage breaks
     # the one-second ambiguity of a regular metronome; tied hypotheses are rejected.
     candidates = []
@@ -96,21 +95,78 @@ def analyze_stems(beep, dry, wet, music_offset_ms, fixed_ms, correction_ms, dry_
     if any(count == best[0] and abs(lag-best[2]) > 150 for count,_,lag,_ in candidates[1:]):
         raise ValueError('発声の対応が曖昧なため補正しません。8回とも短く発声して再測定してください。')
     residual=np.array([(wet-beep_values[index])*1000 for index,wet in best[3]])
-    residual_spread=float(np.median(np.abs(residual-np.median(residual))))
-    if residual_spread > 55: raise ValueError('録音のずれが安定していないため補正しません。処理落ちや発声タイミングを確認してください。')
     adjustment=int(round(float(np.median(residual))))
-    result=int(round(music_offset_ms+adjustment-fixed_ms))
+    # The same utterance is observed twice. The user's early/late delivery is
+    # common to both observations and must not be mistaken for device latency.
+    result=int(round(best[2]-fixed_ms))
     if not -1000 <= result <= 1000: raise ValueError('必要な補正が±1000msを超えました。音声ルートを確認してください。')
-    return dict(correction_ms=result,previous_correction_ms=correction_ms,residual_ms=adjustment,
-        voice_delay_ms=round(best[2]),spread_ms=round(residual_spread),matched=best[0])
+    return dict(method='voice-pair',correction_ms=result,previous_correction_ms=correction_ms,residual_ms=adjustment,
+        voice_delay_ms=round(best[2]),spread_ms=round(best[1]),matched=best[0])
 
 
-def decode(ffmpeg, recording, index):
+def decode(ffmpeg, recording, index, channel=None):
     result=subprocess.run([ffmpeg,'-nostdin','-v','error','-copyts','-start_at_zero','-i',recording,
-        '-map',f'0:a:{index}','-t','30','-af','aresample=async=1:first_pts=0','-ac','1','-ar',str(RATE),'-f','f32le','pipe:1'],
+        '-map',f'0:a:{index}','-t','30','-af',(f'pan=mono|c0=c{channel},' if channel in (0,1) else '')+'aresample=async=1:first_pts=0','-ac','1','-ar',str(RATE),'-f','f32le','pipe:1'],
         stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     if result.returncode or len(result.stdout) > RATE*30*4: raise ValueError('測定音声を解析できませんでした。録画形式・音声トラックを確認してください。')
     return np.frombuffer(result.stdout,dtype='<f4')
+
+
+def analyze_probe(beep, wet, music_offset_ms, fixed_ms, correction_ms):
+    """Align known injected vowels with OBS; no human delivery or mic WAV."""
+    from backend.sync_probe import ONSETS, test_signals
+    signals = [np.asarray(signal, np.float64) for signal in (beep, wet)]
+    if any(signal.ndim != 1 or not np.isfinite(signal).all() for signal in signals):
+        raise ValueError('録音に不正な音声があります。')
+    if min(map(len, signals)) < RATE*10:
+        raise ValueError('テスト録音が短すぎます。')
+    if any(np.mean(np.abs(signal) >= .999) > .005 for signal in signals):
+        raise ValueError('録音が音割れしています。出力音量を下げて再測定してください。')
+    level, hop = tone_envelope(signals[0])
+    threshold = max(.008, float(np.max(level))*.30)
+    beeps = np.array([((start+end)/2)*hop-.02 for start, end in runs(level > threshold) if .025 <= (end-start)*hop <= .16])
+    if len(beeps) != len(ONSETS):
+        raise ValueError('測定用の目印の音を録音できませんでした。伴奏の音声ソースを確認してください。')
+    offsets = beeps-np.asarray(ONSETS)-music_offset_ms/1000
+    if np.ptp(offsets) > .04:
+        raise ValueError('測定用の音声の時刻が安定していません。音声デバイスを確認してください。')
+    timeline = float(np.median(offsets))
+    source, _ = test_signals(RATE)
+    dry = voice_onsets(source)+timeline
+    try:
+        wet_starts = voice_onsets(signals[1])
+    except ValueError as error:
+        raise ValueError('変換後のテスト音声を録音できませんでした。OBSの声ソースを確認してください。') from error
+    candidates = []
+    for lag in np.unique(np.round((wet_starts[:, None]-dry).ravel(), 3)):
+        if not 0 <= lag <= 3.2:
+            continue
+        used, deltas = set(), []
+        for onset in dry:
+            matches = [(abs(value-onset-lag), index, value) for index, value in enumerate(wet_starts) if index not in used and abs(value-onset-lag) <= .10]
+            if matches:
+                _, index, value = min(matches)
+                used.add(index)
+                deltas.append((value-onset)*1000)
+        if len(deltas) < 6:
+            continue
+        delta = float(np.median(deltas))
+        spread = float(np.median(np.abs(np.asarray(deltas)-delta)))
+        if spread <= 35 and np.ptp(deltas) <= 160:
+            candidates.append((len(deltas), spread, delta))
+    if not candidates:
+        raise ValueError('変換後のテスト音声を対応付けられませんでした。OBSの声ソースと変換状態を確認してください。')
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    count, spread, delay = candidates[0]
+    if delay < 30:
+        raise ValueError('変換後の声を録音できていない可能性があります。OBSの声ソースを確認してください。')
+    if any(matched == count and abs(value-delay) > 150 for matched, _, value in candidates[1:]):
+        raise ValueError('音声の対応が曖昧なため補正しません。OBSの声ソースに他の音が混ざっていないか確認してください。')
+    correction = round(delay-fixed_ms)
+    if not -1000 <= correction <= 1000:
+        raise ValueError('必要な補正が±1000msを超えました。音声ルートを確認してください。')
+    return dict(method='injected-voice', correction_ms=correction, previous_correction_ms=correction_ms,
+                voice_delay_ms=round(delay), spread_ms=round(spread), matched=count)
 
 
 def play(config, emit, cancel):
@@ -191,6 +247,12 @@ def main():
                 play(request,emit,cancel);emit(dict(phase='completed'))
             finally:
                 if com:com.CoUninitialize()
+        elif request['mode'] in ('analyze-probe','analyze-stereo-probe'):
+            stereo=request['mode']=='analyze-stereo-probe'
+            beep=decode(request['ffmpeg'],request['recording'],0,0 if stereo else None)
+            wet=decode(request['ffmpeg'],request['recording'],0 if stereo else 1,1 if stereo else None)
+            if cancel.is_set():raise InterruptedError('測定を中止しました。')
+            emit(dict(phase='completed',**analyze_probe(beep,wet,request['music_offset_ms'],request['fixed_ms'],request['correction_ms'])))
         else:
             beep=decode(request['ffmpeg'],request['recording'],0)
             dry=decode(request['ffmpeg'],request['dry_file'],0)

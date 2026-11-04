@@ -40,10 +40,11 @@
 .obs-heading .pill{white-space:nowrap}
 .obs-heading>.obs-button{flex-shrink:0}
 .obs-integration>.obs-source-heading{margin:0 0 7px}
+.obs-integration>.obs-video-heading{margin-top:14px}.obs-video-heading .singing-toggle{white-space:nowrap;flex-shrink:0}
+.obs-video-add{display:block;width:100%;margin-top:10px}
+.obs-video-sources{margin-top:14px}.obs-video-sources .obs-source-heading{margin:0 0 8px}.obs-video-actions{display:flex;align-items:center;gap:10px}.obs-source-step{min-width:30px;min-height:30px;padding:3px 7px;flex-shrink:0}.obs-video-row+.obs-video-row{margin-top:12px;padding-top:12px;border-top:1px solid #e6ddd5}.obs-video-select{display:flex;align-items:center;gap:7px}.obs-video-select select{min-width:0;flex:1}
 .obs-sync-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}
 .obs-sync-summary .obs-auto{margin:0}
-.obs-sync-summary output{font-size:19px;font-weight:700;white-space:nowrap}
-.obs-sync-summary output small{font-size:14px;font-weight:400}
 .obs-settings-dialog{width:min(560px,calc(100vw - 48px))}
 .obs-settings-dialog .obs-connection-actions{margin:16px 0 0}
 .obs-settings-dialog>.slider{margin-top:22px}

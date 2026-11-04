@@ -12,6 +12,11 @@ try{
  const restored=new Presets(home).apply(id,current,devices);
  for(const key of ['beatrice_model','beatrice_voice','beatrice_model_alias','beatrice_pitch','beatrice_formant','singing_enabled','singing_latency_ms','fx_enabled','fx_reverb','obs_correction_ms','obs_input_name'])assert.equal(restored[key],saved[key],key);
  assert.equal(restored.input,10);assert.equal(restored.output,20);assert.equal(restored.python,'current-python');assert.equal(restored.training_audio,'current-audio');
+ const legacy=JSON.parse(persisted);for(const item of legacy.presets)for(const key of ['obs_delay_manual','obs_path_delay_ms','obs_path_signature','obs_video_correction_ms'])delete item.settings[key];
+ const legacyText=JSON.stringify(legacy);fs.writeFileSync(store.file,legacyText);
+ const legacyRestored=new Presets(home).apply(id,current,devices);
+ assert.equal(legacyRestored.obs_delay_manual,false);assert.equal(legacyRestored.obs_video_correction_ms,0);
+ assert.equal(fs.readFileSync(store.file,'utf8'),legacyText);
  store.markApplied(id);assert.equal(new Presets(home).list(restored)[0].active,true);
  assert.equal(store.list({...restored,gain:restored.gain-1})[0].active,false);
  const twin=store.save({name:'同じ設定',config:saved});store.markApplied(twin);
@@ -25,6 +30,10 @@ try{
  store.save({id,name:'歌枠用',config:{...saved,beatrice_pitch:10}});assert.equal(new Presets(home).get(id).settings.beatrice_pitch,10);
  fs.unlinkSync(model);assert.throws(()=>store.apply(id,current,devices),/モデルファイル/);assert.equal(current.beatrice_pitch,-3);
  store.remove(id);assert.deepEqual(new Presets(home).list(),[]);assert.throws(()=>store.apply(id,current));
+ const manual={...current,singing_enabled:true,singing_latency_ms:200,obs_correction_ms:300,obs_delay_manual:true};
+ const manualId=store.save({name:'手動遅延',config:manual});store.markApplied(manualId);
+ assert.equal(store.list({...manual,singing_latency_ms:250,obs_correction_ms:250})[0].active,true);
+ assert.equal(store.list({...manual,singing_latency_ms:250,obs_correction_ms:251})[0].active,false);store.remove(manualId);
  fs.writeFileSync(store.file,'corrupt');const broken=new Presets(home);assert.throws(()=>broken.save({name:'test',config:current}));assert.equal(fs.readFileSync(store.file,'utf8'),'corrupt');
  console.log('PASS: named preset persistence, complete voice/singing restore, device renumbering, environment/secret exclusion, CRUD, validation, missing files/devices and corruption preserve data');
 }finally{fs.rmSync(home,{recursive:true,force:true});}

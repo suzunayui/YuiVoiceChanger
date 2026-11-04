@@ -8,15 +8,16 @@ import Help from './Help';
 import Slider from './Slider';
 import PresetCard from './PresetCard';
 import SingingSettings,{effectDefaults,type EffectConfig} from './SingingSettings';
+import {mixDefaults,type MixConfig} from './StreamMix';
 import {obsDefaults,type ObsConfig} from './ObsIntegration';
 import {idleCalibration,type CalibrationStatus} from './LatencyCalibration';
 
-export type Config=EffectConfig&ObsConfig&{singing_enabled:boolean;singing_latency_ms:number;engine_version:number;beatrice_model:string;beatrice_voice:number;beatrice_model_alias:string;beatrice_model_icon:string;beatrice_pitch:number;beatrice_formant:number;beatrice_block:number;schedule_ms:number;input_gain:number;gain:number;python:string;input:number;output:number;input_name:string;output_name:string;compute:string;training_source:string;training_audio:string;teacher_pitch:number;training_steps:number};
+export type Config=EffectConfig&ObsConfig&MixConfig&{singing_enabled:boolean;singing_latency_ms:number;engine_version:number;beatrice_model:string;beatrice_voice:number;beatrice_model_alias:string;beatrice_model_icon:string;beatrice_pitch:number;beatrice_formant:number;beatrice_block:number;schedule_ms:number;input_gain:number;gain:number;python:string;input:number;output:number;input_name:string;output_name:string;compute:string;training_source:string;training_audio:string;teacher_pitch:number;training_steps:number};
 type Device={id:number;name:string;host:string;inputs:number;outputs:number};
 type ComputeDevice={id:string;kind:string;name:string;available:boolean;reason?:string;memory_gb?:number};
 type RecentModel={id:string;path:string;voice:number;label:string;alias:string;icon:string;available:boolean};
 declare global{interface Window{yvc:{platform:string;invoke:(action:string,payload?:unknown)=>Promise<any>;subscribe:(callback:(event:any)=>void)=>()=>void}}}
-const empty:Config={...effectDefaults,...obsDefaults,singing_enabled:false,singing_latency_ms:400,engine_version:2,beatrice_model:'',beatrice_voice:0,beatrice_model_alias:'',beatrice_model_icon:'',beatrice_pitch:14,beatrice_formant:0,beatrice_block:.08,schedule_ms:160,input_gain:12,gain:0,python:'',input:-1,output:-1,input_name:'',output_name:'',compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000};
+const empty:Config={...effectDefaults,...obsDefaults,...mixDefaults,singing_enabled:false,singing_latency_ms:400,engine_version:2,beatrice_model:'',beatrice_voice:0,beatrice_model_alias:'',beatrice_model_icon:'',beatrice_pitch:14,beatrice_formant:0,beatrice_block:.08,schedule_ms:160,input_gain:12,gain:0,python:'',input:-1,output:-1,input_name:'',output_name:'',compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000};
 const supported=['win32','darwin'].includes(window.yvc.platform);
 const audioHost=window.yvc.platform==='darwin'?'Core Audio':'Windows WASAPI';
 const basename=(value:string)=>value.split(/[\\/]/).pop()||'モデル未選択';
@@ -27,7 +28,6 @@ function App(){
  const [devices,setDevices]=useState<Device[]>([]),[metrics,setMetrics]=useState<any>({});
  const [calibration,setCalibration]=useState<CalibrationStatus>(idleCalibration);
  const [presetSwitching,setPresetSwitching]=useState(false);
- const [obsSyncBusy,setObsSyncBusy]=useState(false);
  const [modelHistory,setModelHistory]=useState<RecentModel[]>([]);
  const [selectedModelId,setSelectedModelId]=useState('');
  const [iconImages,setIconImages]=useState<Record<string,string>>({}),[changingIcon,setChangingIcon]=useState(false);
@@ -36,11 +36,12 @@ function App(){
  const [job,setJob]=useState<any>({phase:'idle',busy:false}),[inspecting,setInspecting]=useState(false);
  const [message,setMessage]=useState(''),[error,setError]=useState('');
  const [loaded,setLoaded]=useState(false),[settingUp,setSettingUp]=useState(false),[setupMessage,setSetupMessage]=useState('');
+ const [installingObsPlugin,setInstallingObsPlugin]=useState(false),[obsPluginMessage,setObsPluginMessage]=useState(''),[obsPluginError,setObsPluginError]=useState('');
  const [installingOfficial,setInstallingOfficial]=useState(false),[officialMessage,setOfficialMessage]=useState(''),[officialError,setOfficialError]=useState('');
  const [computeDevices,setComputeDevices]=useState<ComputeDevice[]>([]),[computeLoading,setComputeLoading]=useState(true),[computeWarning,setComputeWarning]=useState(''),[computeRefresh,setComputeRefresh]=useState(0);
  const converting=state!=='stopped'||presetSwitching;
- const active=converting||settingUp||job.busy||inspecting||installingOfficial||changingIcon||calibration.busy||presetSwitching||obsSyncBusy;
- const adjustmentsDisabled=settingUp||job.busy||inspecting||installingOfficial||changingIcon||calibration.busy||presetSwitching||obsSyncBusy||!['stopped','running'].includes(state);
+ const active=converting||settingUp||job.busy||inspecting||installingOfficial||changingIcon||calibration.busy||presetSwitching;
+ const adjustmentsDisabled=settingUp||job.busy||inspecting||installingOfficial||changingIcon||calibration.busy||presetSwitching||!['stopped','running'].includes(state);
  const iconIds=[...new Set([config.beatrice_model_icon,...(library?modelHistory:[]).map(item=>item.icon)].filter(Boolean))].sort().join(',');
  useEffect(()=>{setSelectedModelId('');},[config.beatrice_model,config.beatrice_voice]);
  useEffect(()=>{
@@ -51,7 +52,7 @@ function App(){
    .catch(e=>{if(!cancelled)setError(String(e));});
   return()=>{cancelled=true;};
  },[iconIds]);
- useEffect(()=>{if(loaded&&!presetSwitching&&!obsSyncBusy)window.yvc.invoke('save',config).catch(e=>setError(String(e)));},[config,loaded,presetSwitching,obsSyncBusy]);
+ useEffect(()=>{if(loaded&&!presetSwitching)window.yvc.invoke('save',config).catch(e=>setError(String(e)));},[config,loaded,presetSwitching]);
  useEffect(()=>{
   if(!loaded||!devices.length)return;
   setConfig(prev=>{
@@ -71,10 +72,10 @@ function App(){
    if(event.type==='latency-calibration'){setCalibration(event);if(event.config)setConfig(event.config);}
    if(event.type==='model-history')setModelHistory(event.models);
    if(event.type==='preset-switch')setPresetSwitching(event.busy);
-   if(event.type==='obs-sync'){setObsSyncBusy(event.busy);if(event.config)setConfig(event.config);}
    if(event.type==='preset-config'){setConfig(event.config);setMetrics({});}
    if(event.type==='devices')setDevices(event.devices);
    if(event.type==='state'){
+    if(event.config)setConfig(event.config);
     setState(event.state);
     if(event.state==='running'){setActualDevice(event.device);setMetrics((p:any)=>({...p,budget_ms:event.budget_ms,schedule_ms:event.schedule_ms}));setMessage('');}
     else{if(event.state==='stopped')setActualDevice('');setMessage(event.state==='loading'?'変換エンジンを準備しています…':'');}
@@ -91,7 +92,6 @@ function App(){
   }).catch(e=>setError(String(e)));
   window.yvc.invoke('training-status').then(setJob).catch(e=>setError(String(e)));
   window.yvc.invoke('latency-calibration-status').then(setCalibration).catch(e=>setError(String(e)));
-  window.yvc.invoke('obs-sync-status').then(status=>setObsSyncBusy(status.busy)).catch(e=>setError(String(e)));
   window.yvc.invoke('model-history').then(setModelHistory).catch(e=>setError(String(e)));
   return unsubscribe;
  },[]);
@@ -214,7 +214,14 @@ function App(){
       <label title="変換した声を送る先です。VB-CABLEで配信・通話へ送る場合はCABLE Inputを選び、送信先アプリのマイクをCABLE Outputにします。"><span>変換音声の出力先</span><select disabled={active} value={config.output} onChange={e=>{const id=Number(e.target.value);setConfig(p=>({...p,output:id,output_name:devices.find(d=>d.id===id)?.name||''}));}}><option value={-1}>出力を選択</option>{options('outputs').map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
      </div>
     </section>
-    <PresetCard config={config} disabled={settingUp||job.busy||inspecting||installingOfficial||changingIcon||calibration.busy||presetSwitching||obsSyncBusy||!['stopped','running'].includes(state)} saveDisabled={settingUp||job.busy||inspecting||installingOfficial||calibration.busy||presetSwitching||obsSyncBusy} onApply={next=>{setConfig(next);setMetrics({});setError('');}}/>
+    <PresetCard config={config} disabled={settingUp||job.busy||inspecting||installingOfficial||changingIcon||calibration.busy||presetSwitching||!['stopped','running'].includes(state)} saveDisabled={settingUp||job.busy||inspecting||installingOfficial||calibration.busy||presetSwitching} onApply={next=>{setConfig(next);setMetrics({});setError('');}}/>
+    <section className="card settings-transfer" aria-label="設定の保存・読み込み">
+     <h3>設定の保存・読み込み</h3>
+     <div className="guide-actions">
+      <button title="保存した設定JSONを読み込みます。別のPCではモデルなどの保存先を選び直してください。" disabled={active} onClick={async()=>{try{const c=await window.yvc.invoke('import-settings');if(c){setConfig(c);setDevices(d=>[...d]);setMessage('設定を読み込みました。');setError('');}}catch(e){setError(String(e));}}}>設定をインポート</button>
+      <button title="現在の設定をJSONファイルに保存します。モデル本体は含みません。" disabled={active} onClick={async()=>{try{await window.yvc.invoke('save',config);const file=await window.yvc.invoke('export-settings');if(file)setMessage('設定を書き出しました。');}catch(e){setError(String(e));}}}>設定をエクスポート</button>
+     </div>
+    </section>
     </div>
     <div className="voice-column">
      <section className="signal-card" aria-label="音声モニター">
@@ -237,7 +244,7 @@ function App(){
     </section>
     </div>
     </div>
-   </>:tab==='singing'?null:<div className="settings-grid"><section className="card settings">
+   </>:tab==='singing'?null:<section className="card settings">
     <section className="runtime-setup" aria-label="変換環境">
      <div className="section-title"><h3>変換環境</h3><span className="pill">{config.python?'設定済み':'未設定'}</span></div>
      <div className="guide-actions"><button title="変換に必要な環境を自動で用意します。初回は数GBのダウンロードが必要な場合があります。このPCのPythonやPATHは変更しません。" disabled={active||!supported} onClick={setup}>{settingUp?'セットアップ中…':'必要な環境を自動セットアップ'}</button></div>
@@ -257,15 +264,24 @@ function App(){
      </div>
      {computeWarning&&<p role="status" className="hint danger">{computeWarning}</p>}
     </fieldset>
+    {window.yvc.platform==='win32'&&<section className="runtime-setup obs-plugin-setup" aria-label="OBSプラグイン">
+     <div className="section-title">
+      <h3>OBSプラグイン</h3>
+      <button className="obs-button" disabled={installingObsPlugin} title="OBS 33.0.1用の操作プレビューを追加します。必要に応じてWindowsの管理者確認が表示されます。" onClick={async()=>{
+       setInstallingObsPlugin(true);setObsPluginMessage('');setObsPluginError('');
+       try{
+        const result=await window.yvc.invoke('install-obs-plugin');
+        setObsPluginMessage((result.alreadyInstalled?'導入済みです。':'導入しました。OBSを再起動してください。')+' OBSの「ツール」から「YuiVoiceChanger」を選びます。');
+       }catch(error){setObsPluginError((error instanceof Error?error.message:String(error)).replace(/^Error invoking remote method '[^']+': Error: /,''));}
+       finally{setInstallingObsPlugin(false);}
+      }}>{installingObsPlugin?'導入中…':'OBSプラグインを導入する'}</button>
+     </div>
+     {obsPluginMessage&&<p className="hint" role="status">{obsPluginMessage}</p>}
+     {obsPluginError&&<p className="hint danger" role="alert">{obsPluginError}</p>}
+    </section>}
    </section>
-   <section className="card settings-transfer" aria-label="設定の保存・読み込み">
-    <h3>設定の保存・読み込み</h3>
-    <div className="guide-actions settings-actions">
-     <button title="保存した設定JSONを読み込みます。別のPCではモデルなどの保存先を選び直してください。" disabled={active} onClick={async()=>{try{const c=await window.yvc.invoke('import-settings');if(c){setConfig(c);setDevices(d=>[...d]);setMessage('設定を読み込みました。');setError('');}}catch(e){setError(String(e));}}}>設定をインポート</button>
-     <button title="現在の設定をJSONファイルに保存します。モデル本体は含みません。" disabled={active} onClick={async()=>{try{await window.yvc.invoke('save',config);const file=await window.yvc.invoke('export-settings');if(file)setMessage('設定を書き出しました。');}catch(e){setError(String(e));}}}>設定をエクスポート</button>
-    </div>
-   </section></div>}
-   <footer><div className="footer-message">{inspecting?'モデルの形式を確認しています…':message}</div><div className="footer-actions"><div className={'status '+(state==='running'?'live':'')}><i/>{state==='running'?'変換中':state==='stopped'?'待機中':state==='stopping'?'停止中':'準備中'}</div><button title={converting?'マイクからの変換を停止します。':!config.python?'環境設定で変換環境をセットアップしてください。':!model?'モデル一覧から声のモデルを選択してください。':config.input<0||config.output<0?'マイクと出力先を選択してください。':'選択したマイクの声を変換し、指定した出力先へ送ります。'} className={'primary '+(converting?'stop':'')} onClick={toggle} disabled={!supported||settingUp||installingOfficial||changingIcon||job.busy||calibration.busy||inspecting||(!converting&&obsSyncBusy)||(state==='stopping'&&!presetSwitching)||(!converting&&(!config.python||!model||config.input<0||config.output<0))}>{state==='stopping'&&!presetSwitching?'停止中…':converting?'■ 停止する':'▶  声変換をはじめる'}</button></div></footer>
+}
+   <footer><div className="footer-message">{inspecting?'モデルの形式を確認しています…':message}</div><div className="footer-actions"><div className={'status '+(state==='running'?'live':'')}><i/>{state==='running'?'変換中':state==='stopped'?'待機中':state==='stopping'?'停止中':'準備中'}</div><button title={converting?'マイクからの変換を停止します。':!config.python?'環境設定で変換環境をセットアップしてください。':!model?'モデル一覧から声のモデルを選択してください。':config.input<0||config.output<0?'マイクと出力先を選択してください。':'選択したマイクの声を変換し、指定した出力先へ送ります。'} className={'primary '+(converting?'stop':'')} onClick={toggle} disabled={!supported||settingUp||installingOfficial||changingIcon||job.busy||calibration.busy||inspecting||(state==='stopping'&&!presetSwitching)||(!converting&&(!config.python||!model||config.input<0||config.output<0))}>{state==='stopping'&&!presetSwitching?'停止中…':converting?'■ 停止する':'▶  声変換をはじめる'}</button></div></footer>
   </main>
   {library&&<ModelLibrary items={modelHistory} icons={iconImages} currentId={currentRecentModel?.id} selectedId={selectedRecentModel?.id} onSelect={setSelectedModelId} disabled={active} onClose={()=>setLibrary(false)} onTrain={()=>{setTab('training');setLibrary(false);}} onAdd={addLibraryModel} onUse={useLibraryModel} onSave={saveLibraryModel} onRemove={removeLibraryModel} onPickIcon={id=>window.yvc.invoke('pick-library-icon',{id})} official={{installing:installingOfficial,message:officialMessage,error:officialError,supported,onInstall:installTsukuyomi,onCancel:async()=>{setOfficialMessage('導入を中止しています…');await window.yvc.invoke('cancel-official-model');},onTerms:()=>window.yvc.invoke('open-resource','tsukuyomi_terms')}}/>}
  </div>;

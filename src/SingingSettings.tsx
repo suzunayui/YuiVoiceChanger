@@ -1,8 +1,9 @@
-import React,{useState} from 'react';
+import React from 'react';
 import type {Config} from './main';
 import Slider from './Slider';
 import ObsIntegration from './ObsIntegration';
 import LatencyCalibration,{type CalibrationStatus} from './LatencyCalibration';
+import StreamMix from './StreamMix';
 
 export const effectDefaults={fx_enabled:false,fx_lowcut:80,fx_brightness:0,fx_compressor:0,fx_deesser:0,fx_reverb:0,fx_echo:0,fx_echo_ms:250,fx_limiter:true};
 export type EffectConfig=typeof effectDefaults;
@@ -13,15 +14,14 @@ const presets=[
 ];
 
 export default function SingingSettings({config,active,effectsDisabled,running,metrics,calibration,onCalibration,onUpdate}:{config:Config;active:boolean;effectsDisabled:boolean;running:boolean;metrics:any;calibration:CalibrationStatus;onCalibration:(next:CalibrationStatus)=>void;onUpdate:(patch:Partial<Config>)=>void}){
- const [beepTarget,setBeepTarget]=useState<HTMLSpanElement|null>(null);
  const effect=(key:keyof EffectConfig,label:string,help:string,min:number,max:number,unit='%')=><Slider key={key} label={label} help={help} value={Number(config[key])} min={min} max={max} unit={unit} signed={unit==='dB'} disabled={effectsDisabled||!config.fx_enabled} onChange={value=>onUpdate({[key]:value})}/>;
  return <div className="singing-grid">
   <div className="singing-sidebar">
-  <section className="card singing-timing" aria-label="歌枠の遅延">
-   <div className="section-title timing-heading"><label className="singing-toggle" title="出力のタイミングを一定にします。変更は停止中に行います。"><input type="checkbox" checked={config.singing_enabled} disabled={active} onChange={e=>onUpdate({singing_enabled:e.target.checked})}/>固定遅延</label><span className="beep-setting-slot" ref={setBeepTarget}/></div>
-   <Slider label="入力→出力の遅延（目標）" labelControl={<span>目標の遅延</span>} help="入力から出力までの目標です。上の自動設定ではビープでOBSとのずれを補正します。処理時間から目標値を推定する機能はOBS連携の設定にあります。" value={config.singing_latency_ms} min={200} max={2000} step={10} unit="ms" signed={false} disabled={active||!config.singing_enabled} onChange={value=>onUpdate({singing_latency_ms:value})}/>
-  </section>
-  <ObsIntegration config={config} active={active} disabled={effectsDisabled} running={running} onUpdate={onUpdate} beepTarget={beepTarget} latencySettings={<LatencyCalibration config={config} status={calibration} disabled={active} onStatus={onCalibration} buttonLabel="処理時間から設定"/>}/>
+  <StreamMix config={config} active={active} disabled={effectsDisabled} running={running} onUpdate={onUpdate}>
+   <Slider label="固定遅延" help={config.mix_enabled?'声と伴奏をそろえて出力するまでの待ち時間です。OBSまでの機器の遅延は別に加わります。変更は停止中に行います。':'マイク入力からOBSに届くまでの目標遅延です。自動測定後は経路の遅れを差し引いて声の出力時刻を調整します。変更は停止中に行います。'} value={config.mix_enabled?config.mix_latency_ms:config.singing_latency_ms+config.obs_correction_ms} min={200} max={3000} step={1} unit="ms" signed={false} disabled={active} onChange={value=>{if(config.mix_enabled){onUpdate({mix_latency_ms:value});return;}const base=Math.min(value,Math.max(200,Math.min(2000,Math.max(config.singing_latency_ms,value-1000))));onUpdate({singing_latency_ms:base,obs_correction_ms:value-base,obs_delay_manual:true});}}/>
+   {!config.mix_enabled&&<LatencyCalibration config={config} status={calibration} disabled={active} onStatus={onCalibration} buttonLabel="処理時間から設定"/>}
+  </StreamMix>
+  <ObsIntegration config={config} active={active} disabled={effectsDisabled} running={running} onUpdate={onUpdate}/>
   </div>
   <section className="card vocal-effects" aria-label="ボーカルエフェクト">
    <div className="section-title"><h3>ボーカルエフェクト</h3><label className="singing-toggle" title="変換後の声にエフェクトをかけます。変換中も変更できます。"><input type="checkbox" checked={config.fx_enabled} disabled={effectsDisabled} onChange={e=>onUpdate({fx_enabled:e.target.checked})}/>有効</label></div>

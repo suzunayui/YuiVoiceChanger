@@ -9,7 +9,7 @@ import numpy as np
 from backend.scheduled_audio import ScheduledAudio
 from backend.audio_controls import CONTROL_DEFAULTS, normalize_controls
 from backend.vocal_effects import EFFECT_DEFAULTS, normalize_effects, VocalEffects
-from backend.singing import singing_settings, output_schedule
+from backend.singing import singing_settings, output_schedule, resolve_fixed_timing
 from pathlib import Path
 
 
@@ -97,6 +97,82 @@ class Realtime:
         self.controls = dict(CONTROL_DEFAULTS)
         self.effects = dict(EFFECT_DEFAULTS)
         self.cached_model = None
+        self.sync_probe = None
+        self.stream_running = threading.Event()
+        self.probe_lock = threading.Lock()
+        self.voice_reference = None
+        self.reference_fixed = False
+        self.program_mix = None
+        self.mix_music_gain = -6
+
+    def update_music_gain(self,value):
+        if type(value) not in (int,float) or not math.isfinite(value) or not -24<=value<=6:raise ValueError('伴奏ゲインは−24〜6dBにしてください。')
+        self.mix_music_gain=value
+        if self.program_mix:self.program_mix.gain=10**(value/20)
+
+    def start_passive_reference(self):
+        from backend.passive_audio import VoiceReference
+        if self.program_mix:raise ValueError('MIXモードでは声と伴奏を同じ時間軸で合成しています。個別ソースのずれ確認は通常モードで使用してください。')
+        if not self.stream_running.is_set() or not self.reference_fixed:
+            raise ValueError('固定遅延を有効にして声変換を開始してください。')
+        if self.sync_probe:raise ValueError('自動調整が終わってから確認してください。')
+        self.stop_passive_reference()
+        self.voice_reference=VoiceReference()
+
+    def stop_passive_reference(self):
+        reference,self.voice_reference=self.voice_reference,None
+        if reference:reference.close()
+
+    def passive_snapshot(self):
+        reference=self.voice_reference
+        if not reference:raise ValueError('声の参照音声を取得していません。')
+        if reference.failure:raise ValueError(reference.failure)
+        return reference.ring.snapshot()
+
+    def start_sync_test(self, identifier, device_name='', silent=False):
+        import re
+        from backend.sync_probe import SyncProbe
+        if not isinstance(identifier, str) or not re.fullmatch(r'[a-f0-9-]{36}', identifier):
+            raise ValueError('測定の識別子が正しくありません。')
+        if not isinstance(device_name, str) or len(device_name) > 512 or any(ord(char) < 32 for char in device_name):
+            raise ValueError('測定用の音声再生先が正しくありません。')
+        with self.probe_lock:
+            if not self.stream_running.is_set() or self.stop_event.is_set():
+                raise ValueError('声変換を開始してから測定してください。')
+            if self.sync_probe:
+                raise ValueError('テスト音声は再生中です。')
+            if self.voice_reference:raise ValueError('ずれの確認を停止してから自動調整してください。')
+            if self.program_mix:raise ValueError('MIXモードではOBSの音声自動調整は使用しません。')
+            if not isinstance(silent, bool):
+                raise ValueError('測定方法が正しくありません。')
+            probe = SyncProbe(identifier, device_name, self.notify, self._probe_closed, silent=silent)
+            self.sync_probe = probe
+            probe.start()
+
+    def sync_test_clock(self, identifier, token):
+        with self.probe_lock:
+            if self.sync_probe and self.sync_probe.identifier == identifier and self.sync_probe.silent:
+                self.sync_probe.emit('clock',token=token,clock=time.monotonic())
+
+    def align_sync_test(self, identifier, epoch):
+        with self.probe_lock:
+            if not self.sync_probe or self.sync_probe.identifier != identifier:
+                return
+            try:
+                self.sync_probe.align(epoch)
+            except Exception as error:
+                self.sync_probe.failure = str(error)
+                self.sync_probe.stop()
+
+    def _probe_closed(self, probe):
+        with self.probe_lock:
+            if self.sync_probe is probe:
+                self.sync_probe = None
+
+    def cancel_sync_test(self):
+        with self.probe_lock:
+            if self.sync_probe:
+                self.sync_probe.stop()
 
     def update_controls(self, changes, effects=None):
         if not isinstance(changes, dict) or not changes or set(changes) - CONTROL_DEFAULTS.keys():
@@ -115,6 +191,8 @@ class Realtime:
         if float(config.get('schedule_ms', 160)) != 160:
             raise ValueError('出力の待ち時間は160msです。')
         singing_settings(config)
+        if config.get('mix_enabled') and (os.name!='nt' or not config.get('singing_enabled')):raise ValueError('MIXモードはWindowsの固定遅延で使用してください。')
+        self.update_music_gain(config.get('mix_music_gain',-6))
         with self.controls_lock:
             self.controls = normalize_controls(config)
             self.effects = normalize_effects(config)
@@ -126,11 +204,15 @@ class Realtime:
 
     def stop(self):
         self.stop_event.set()
+        self.cancel_sync_test()
+        self.stop_passive_reference()
 
     def run(self, config):
         stream = None
         pipeline = None
         com = None
+        mixer = None
+        callback_failure = ['']
         try:
             # WASAPI needs COM initialized on the thread opening the stream.
             if os.name == 'nt':
@@ -170,11 +252,21 @@ class Realtime:
             def callback(indata, outdata, frames, timing, status):
                 nonlocal cursor, sequence
                 counters['device_errors'] += int(bool(status))
-                outdata[:] = scheduled.take(frames)[:, None]
+                position=scheduled.cursor
+                voice=scheduled.take(frames)
+                if mixer:
+                    try:outdata[:]=mixer.render(voice,position,timing,status,delay+round(pipeline.fixed_lookback_ms*48))
+                    except Exception as error:outdata.fill(0);callback_failure[0]=str(error)
+                else:outdata[:] = voice[:,None]
+                reference=self.voice_reference
+                if reference:
+                    reference.timed(outdata[:,0],timing,status,delay+round(pipeline.fixed_lookback_ms*48))
+                probe = self.sync_probe
+                source = probe.input(frames, timing, status) if probe else indata[:, 0]
                 offset = 0
                 while offset < frames:
                     n = min(block-cursor, frames-offset)
-                    staging[cursor:cursor+n] = indata[offset:offset+n, 0]
+                    staging[cursor:cursor+n] = source[offset:offset+n]
                     cursor += n
                     offset += n
                     if cursor == block:
@@ -196,6 +288,11 @@ class Realtime:
 
             input_id, output_id = resolve_devices(config, devices())
             output_channels = min(2, sd.query_devices(output_id)['max_output_channels'])
+            if config.get('mix_enabled'):
+                if output_channels!=2:raise ValueError('MIXの出力先はステレオ対応デバイスを選んでください。')
+                from backend.program_mix import ProgramMix
+                mixer=ProgramMix(config.get('mix_device_id','default'),sd.query_devices(output_id)['name'],self.mix_music_gain)
+                self.program_mix=mixer;mixer.start()
             extra = audio_settings(sd, input_id, output_id, output_channels)
             stream = sd.Stream(device=(input_id, output_id), samplerate=48000, blocksize=480,
                 channels=(1, output_channels), dtype='float32', latency='low',
@@ -203,18 +300,30 @@ class Realtime:
             if self.stop_event.is_set():
                 return
             io_latency_ms=sum(stream.latency)*1000
-            schedule_ms=output_schedule(config,budget_ms,getattr(pipeline,'fixed_lookback_ms',65.),io_latency_ms)
+            if mixer:
+                from backend.program_mix import settings as mix_schedule
+                manual_timing=None
+                schedule_ms=mix_schedule(config,budget_ms,pipeline.fixed_lookback_ms,io_latency_ms)
+            else:
+                config,manual_timing=resolve_fixed_timing(config,budget_ms,getattr(pipeline,'fixed_lookback_ms',65.),io_latency_ms)
+                schedule_ms=output_schedule(config,budget_ms,getattr(pipeline,'fixed_lookback_ms',65.),io_latency_ms)
             delay=round(schedule_ms*48)
             stream.start()
+            self.reference_fixed=bool(config.get('singing_enabled',False))
+            self.stream_running.set()
             self.notify({'type': 'state', 'state': 'running', 'rate': pipeline.rate,
                 'device': pipeline.device_name, 'format': pipeline.format,
                 'schedule_ms': schedule_ms, 'budget_ms':budget_ms, 'io_latency_ms': io_latency_ms,
                 'singing_enabled':config.get('singing_enabled',False),
                 'model_reused':bool(cached),
+                'mix_enabled':bool(mixer),
+                **({'manual_timing':manual_timing} if manual_timing else {}),
                 'input': input_id, 'output': output_id})
             last_sequence = -1
             last_notice = 0
             while not self.stop_event.is_set():
+                if callback_failure[0]:raise ValueError(callback_failure[0])
+                if mixer and mixer.failure:raise ValueError(mixer.failure)
                 try:
                     seq, audio = incoming.get(timeout=.1)
                 except queue.Empty:
@@ -240,6 +349,7 @@ class Realtime:
                     self.notify({'type': 'metrics', **pipeline.stats, **counters,
                         'late_blocks': scheduled.late_blocks,
                         'missing_ms': scheduled.missing_after_start/48,
+                        'output_started': scheduled.started, 'output_samples': scheduled.cursor,
                         'schedule_ms': schedule_ms, 'queue_ms': incoming.qsize()*budget_ms,
                         'latency_estimate_ms': estimate_latency_ms(schedule_ms,pipeline.stats['lookback_ms'],io_latency_ms),
                         'budget_ms': budget_ms, 'over_budget': pipeline.stats['ms'] > budget_ms})
@@ -249,6 +359,14 @@ class Realtime:
             traceback.print_exc()
             self.notify({'type': 'error', 'message': str(exc)})
         finally:
+            self.stream_running.clear()
+            self.reference_fixed=False
+            self.stop_passive_reference()
+            self.program_mix=None
+            probe = self.sync_probe
+            if probe:
+                probe.stop()
+                probe.thread.join(timeout=5)
             try:
                 if stream:
                     try:
@@ -256,6 +374,7 @@ class Realtime:
                     finally:
                         stream.close()
             finally:
+                if mixer:mixer.close()
                 if com:
                     com.CoUninitialize()
                 del pipeline

@@ -13,6 +13,7 @@ from backend.audio_controls import normalize_controls, apply_gain
 from backend.direct_gpu import BeatricePipeline
 from backend.realtime import Realtime
 from backend.scheduled_audio import ScheduledAudio
+from backend.singing import latency_signature
 
 
 class LiveControlsTests(unittest.TestCase):
@@ -75,13 +76,26 @@ class LiveControlsTests(unittest.TestCase):
     def test_singing_stream_holds_target_and_accepts_live_effects(self):
         self.exercise_stream(True)
 
-    def exercise_stream(self, singing):
+    def test_manual_total_reserves_processing_time_without_changing_total(self):
+        self.exercise_stream(True, manual=True)
+
+    def test_calibrated_stream_reserves_voice_arrival_at_obs_target(self):
+        self.exercise_stream(True, manual=True, path_delay=139)
+
+    def test_legacy_gpu_start_repairs_old_timing_before_stream_start(self):
+        self.exercise_stream(True, legacy=True)
+
+    def test_test_voice_replaces_and_restores_microphone_without_restarting(self):
+        self.exercise_stream(False, inject=True)
+
+    def exercise_stream(self, singing, manual=False, path_delay=0, legacy=False, inject=False):
         first, changed = threading.Event(), threading.Event()
+        probe_seen, mic_restored = threading.Event(), threading.Event()
         pipelines, streams, positions, events = [], [], [], []
         target = normalize_controls({'beatrice_pitch': 3, 'beatrice_formant': .5, 'input_gain': 4, 'gain': -4})
         class Pipeline:
             rate = 48000
-            device_name = 'CPU'
+            device_name = 'GPU · Fixture' if legacy else 'CPU'
             format = 'test'
             block = 3840
             config = {'block': .08}
@@ -93,6 +107,9 @@ class LiveControlsTests(unittest.TestCase):
             def set_controls(self, controls): self.controls = dict(controls)
             def convert(self, audio):
                 self.stats = {'ms': 1., 'lookback_ms': 65.}
+                if inject:
+                    if np.all(audio == .125): probe_seen.set()
+                    elif probe_seen.is_set() and np.all(audio == .25): mic_restored.set()
                 first.set()
                 if self.controls == target: changed.set()
                 return np.zeros(self.block, np.float32)
@@ -101,7 +118,7 @@ class LiveControlsTests(unittest.TestCase):
                 positions.append(position)
                 return super().put(position, output)
         class Stream:
-            latency = (.01, .01)
+            latency = (.01, .045) if legacy else (.01, .01)
             def __init__(self, **kwargs):
                 self.callback = kwargs['callback']
                 self.active = False
@@ -111,7 +128,7 @@ class LiveControlsTests(unittest.TestCase):
                 self.active = True
                 def pump():
                     while not self.done.is_set():
-                        self.callback(np.zeros((3840, 1), np.float32), np.zeros((3840, 2), np.float32), 3840, None, False)
+                        self.callback(np.full((3840, 1), .25 if inject else 0., np.float32), np.zeros((3840, 2), np.float32), 3840, None, False)
                         self.done.wait(.02)
                 self.thread = threading.Thread(target=pump, daemon=True)
                 self.thread.start()
@@ -124,8 +141,23 @@ class LiveControlsTests(unittest.TestCase):
         engine = Realtime(events.append)
         with patch('backend.direct_gpu.BeatricePipeline', Pipeline), patch('backend.realtime.ScheduledAudio', Schedule), patch('backend.realtime.devices', return_value=available), patch('backend.realtime.audio_settings', return_value=(None, None)), patch('sounddevice.query_devices', return_value={'max_output_channels': 2}), patch('sounddevice.Stream', Stream):
             try:
-                engine.start({'input': 1, 'output': 2, 'singing_enabled': singing, 'singing_latency_ms': 400})
+                config = {'input': 1, 'output': 2, 'singing_enabled': singing, 'singing_latency_ms': 200 if manual else 400,
+                          'obs_correction_ms': 300 if manual else 0, 'obs_delay_manual': manual}
+                if legacy:
+                    config.update(singing_latency_ms=200, obs_correction_ms=690, compute='cuda:0')
+                if path_delay:
+                    config.update(obs_path_delay_ms=path_delay, obs_path_signature=latency_signature(config))
+                engine.start(config)
                 self.assertTrue(first.wait(3), events)
+                if inject:
+                    class Probe:
+                        def input(self, frames, timing, status): return np.full(frames, .125, np.float32)
+                        def stop(self): pass
+                        thread = type('Thread', (), {'join': lambda self, timeout=None: None})()
+                    probe = Probe();engine.sync_probe = probe
+                    self.assertTrue(probe_seen.wait(3), events)
+                    engine._probe_closed(probe)
+                    self.assertTrue(mic_restored.wait(3), events)
                 engine.update_controls(target, {'fx_enabled': singing, 'fx_compressor': 25, 'fx_reverb': 10})
                 self.assertTrue(changed.wait(3), events)
                 time.sleep(.03)
@@ -140,8 +172,16 @@ class LiveControlsTests(unittest.TestCase):
         self.assertGreaterEqual(len(positions), 2)
         self.assertTrue(all(b-a == 3840 for a, b in zip(positions, positions[1:])), positions)
         running = next(event for event in events if event.get('state') == 'running')
-        self.assertEqual((running['budget_ms'], running['schedule_ms']), (80, 315 if singing else 160))
-        self.assertEqual(positions[0], (315 if singing else 160)*48)
+        schedule = 260 if legacy else 415-path_delay if manual else 315 if singing else 160
+        self.assertEqual((running['budget_ms'], running['schedule_ms']), (80, schedule))
+        self.assertEqual(positions[0], schedule*48)
+        if manual:
+            self.assertEqual(running['manual_timing'], dict(previous_base_ms=200, previous_correction_ms=300,
+                                                          singing_latency_ms=500-path_delay, obs_correction_ms=path_delay))
+            self.assertEqual(running['schedule_ms']+65+running['io_latency_ms']+path_delay, 500)
+        if legacy:
+            self.assertEqual(running['manual_timing'], dict(legacy_timing=True, previous_base_ms=200,
+                                                          previous_correction_ms=690, singing_latency_ms=380, obs_correction_ms=0))
         self.assertFalse(any(event['type'] == 'error' for event in events), events)
 
     def test_worker_routes_live_controls_over_json_pipe(self):

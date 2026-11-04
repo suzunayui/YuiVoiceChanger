@@ -67,7 +67,7 @@ class ModelReuseTests(unittest.TestCase):
             self.assertEqual(len(models),1);self.assertEqual(len(warmups),1)
             self.assertIs(engine.cached_model[1],first_model)
             beginning=len(events)
-            engine.start({**base,'singing_enabled':True,'singing_latency_ms':400});engine.thread.join(3)
+            engine.start({**base,'singing_enabled':True,'singing_latency_ms':400,'obs_delay_manual':True});engine.thread.join(3)
             self.assertFalse(engine.thread.is_alive())
             self.assertTrue(any('固定遅延を' in event.get('message','') for event in events[beginning:]))
             run(base,True,640)

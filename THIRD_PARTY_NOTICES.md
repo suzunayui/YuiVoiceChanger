@@ -39,3 +39,7 @@ Optional common training assets are fetched from the fixed upstream model revisi
 The optional source preparation tool uses Microsoft Windows-driver-samples/SysVAD at commit 2dc3fd3a0cc84a2933f2194e7ec0871584979071 (MIT, Microsoft Corporation).
 Upstream sources are fetched separately and their LICENSE is copied to generated build trees as MICROSOFT-LICENSE.txt. No driver binary is bundled. The independent PCM bridge and preparation scripts are MIT licensed.
 The application does not build, sign or install the experimental driver during normal use.
+
+## YuiVoiceChanger OBS plugin (Windows)
+
+The optional OBS plugin in `obs-plugin/` is distributed with its source and GPL-2.0-or-later license. Its delay filter is based on OBS Studio 33.0.1. OBS provides the libobs and Qt libraries used at runtime.
