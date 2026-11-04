@@ -48,7 +48,7 @@ require(${JSON.stringify(path.resolve('electron/main.cjs'))});
   const updates=commands.filter(command=>command.command==='update-controls');assert.equal(updates.length,4);
   assert.deepEqual(updates.at(-1).controls,{beatrice_pitch:13,beatrice_formant:1,input_gain:11,gain:-1});
   await page.getByRole('button',{name:'♫ 歌枠用設定',exact:true}).click();
-  assert(await page.getByRole('checkbox',{name:'固定遅延',exact:true}).isDisabled());
+  assert(await page.getByRole('button',{name:'歌枠用設定にする',exact:true}).isDisabled());
   await page.getByRole('button',{name:'バラード',exact:true}).click();
   await page.waitForFunction(async()=> (await window.yvc.invoke('config')).fx_reverb===20);
   const effectWire=await app.evaluate(()=>global.liveWire.filter(command=>command.command==='update-controls').at(-1));

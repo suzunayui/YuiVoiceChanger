@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,shell,safeStorage,systemPreferences} = require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,systemPreferences} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -38,7 +38,7 @@ const source=!process.env.YVC_DESKTOP_HOME&&!fs.existsSync(CONFIG)?LEGACY_CONFIG
 const saved=read(source);
 const modelHistory=new ModelHistory(HOME);
 const presets=new (require('./presets.cjs').Presets)(HOME);
-const obs=new (require('./obs-link.cjs').ObsLink)({home:HOME,notify:send,credentials:require('./obs-password.cjs').passwordStore(HOME,safeStorage)});
+const obs=new (require('./obs-link.cjs').ObsLink)({home:HOME,notify:send,pipe:process.platform==='win32',disabled:process.platform!=='win32'});
 let config,configError;
 try {config=normalize(saved);} catch(e) {config=normalize({});configError=e.message;}
 const calibration=new (require('./latency-calibration.cjs').LatencyCalibration)({engineRoot:ENGINE_ROOT,notify:send,beforeStart:async()=>{if(connecting)await connecting;await stopWorker();},onComplete:result=>{const next=save({...config,singing_enabled:true,singing_latency_ms:result.recommended_ms,obs_delay_manual:false});result.total_delay_ms=require('./obs-config.cjs').offsetFor(next);return next;}});
@@ -261,14 +261,7 @@ else {
      throw error;
     }
    }
-   if(action==='obs-connect'){
-    if(config.mix_enabled&&engineState==='running'&&obs.connection?.identified)throw Error('MIXを停止してからOBSの接続設定を変更してください。');
-    if(!payload||typeof payload!=='object'||!Number.isInteger(payload.port)||payload.port<1||payload.port>65535||typeof payload.password!=='string'||payload.password.length>1024||typeof payload.remember!=='boolean')throw Error('OBSの接続設定が正しくありません。');
-    save({...config,obs_port:payload.port});
-    return obs.connect(payload);
-   }
    if(action==='obs-refresh')return obs.refresh();
-   if(action==='obs-disconnect')return obs.disconnect();
    if(action==='model-history'){modelHistory.remember(config);return modelHistory.list();}
    if(['add-library-model','edit-library-model','remove-library-model','pick-library-icon'].includes(action)){
     const check=()=>{if(settingUp||training.busy||calibration.busy||engineState!=='stopped')throw Error('変換や学習を停止してからモデル一覧を変更してください。');};

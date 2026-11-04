@@ -21,7 +21,7 @@ export default function SingingSettings({config,active,effectsDisabled,running,m
    <Slider label="固定遅延" help={config.mix_enabled?'声と伴奏をそろえて出力するまでの待ち時間です。OBSまでの機器の遅延は別に加わります。変更は停止中に行います。':'マイク入力からOBSに届くまでの目標遅延です。自動測定後は経路の遅れを差し引いて声の出力時刻を調整します。変更は停止中に行います。'} value={config.mix_enabled?config.mix_latency_ms:config.singing_latency_ms+config.obs_correction_ms} min={200} max={3000} step={1} unit="ms" signed={false} disabled={active} onChange={value=>{if(config.mix_enabled){onUpdate({mix_latency_ms:value});return;}const base=Math.min(value,Math.max(200,Math.min(2000,Math.max(config.singing_latency_ms,value-1000))));onUpdate({singing_latency_ms:base,obs_correction_ms:value-base,obs_delay_manual:true});}}/>
    {!config.mix_enabled&&<LatencyCalibration config={config} status={calibration} disabled={active} onStatus={onCalibration} buttonLabel="処理時間から設定"/>}
   </StreamMix>
-  <ObsIntegration config={config} active={active} disabled={effectsDisabled} running={running} onUpdate={onUpdate}/>
+  {window.yvc.platform==='win32'&&<ObsIntegration config={config} disabled={effectsDisabled} onUpdate={onUpdate}/>}
   </div>
   <section className="card vocal-effects" aria-label="ボーカルエフェクト">
    <div className="section-title"><h3>ボーカルエフェクト</h3><label className="singing-toggle" title="変換後の声にエフェクトをかけます。変換中も変更できます。"><input type="checkbox" checked={config.fx_enabled} disabled={effectsDisabled} onChange={e=>onUpdate({fx_enabled:e.target.checked})}/>有効</label></div>

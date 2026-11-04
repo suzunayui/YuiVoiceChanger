@@ -1,4 +1,5 @@
 const {createHash}=require('node:crypto');
+const net=require('node:net');
 const {obsDefaults,obsKeys,offsetFor}=require('./obs-config.cjs');
 const {isWindowCapture,filterRequests}=require('./obs-video-delay.cjs');
 const {ObsVideoSources}=require('./obs-video-sources.cjs');
@@ -58,9 +59,56 @@ class ObsSocket{
  }
 }
 
+class ObsPipe{
+ constructor(port,_password,{timeout=5000,onClose=()=>{},pipePath='\\\\.\\pipe\\YuiVoiceChanger-OBS-v1'}={}){
+  this.port=port;this.timeout=timeout;this.pending=new Map();this.sequence=0;
+  this.socket=net.createConnection(pipePath);this.socket.setEncoding('utf8');
+  this.ready=new Promise((resolve,reject)=>{
+   const timer=setTimeout(()=>this.socket.destroy(Error('OBSプラグインの応答が時間切れになりました。')),timeout);
+   this.socket.once('connect',()=>{clearTimeout(timer);this.identified=true;resolve(this);});
+   this.socket.once('close',()=>{
+    clearTimeout(timer);
+    const established=this.identified;
+    this.identified=false;
+    const error=this.failure||Error('OBSプラグインとの接続が切れました。');
+    reject(error);
+    for(const pending of this.pending.values()){clearTimeout(pending.timer);pending.reject(error);}
+    this.pending.clear();
+    if(established&&!this.intentional)onClose(error);
+   });
+  });
+  this.socket.on('error',error=>{this.failure=['ENOENT','ECONNREFUSED'].includes(error.code)?Object.assign(Error('OBSプラグインを待っています。'),{unavailable:true}):error;});
+  let buffer='';
+  this.socket.on('data',chunk=>{
+   buffer+=chunk;
+   try{
+    if(buffer.length>4*1024*1024)throw Error('OBSプラグインの応答が大きすぎます。');
+    let end;
+    while((end=buffer.indexOf('\n'))!==-1){
+     const {id,code,data}=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);
+     const pending=this.pending.get(id);if(!pending)continue;
+     this.pending.delete(id);clearTimeout(pending.timer);
+     if(code===100)pending.resolve(data||{});else pending.reject(new ObsRequestError(code,pending.type));
+    }
+   }catch(error){this.socket.destroy(error);}
+  });
+ }
+ close(){this.intentional=true;this.identified=false;this.socket.destroy();}
+ request(type,data={}){
+  if(!this.identified)return Promise.reject(Error('OBSプラグインに接続してください。'));
+  const id=String(++this.sequence);
+  return new Promise((resolve,reject)=>{
+   const timer=setTimeout(()=>{this.pending.delete(id);reject(Error('OBSプラグインの応答が時間切れになりました。'));},this.timeout);
+   this.pending.set(id,{resolve,reject,timer,type});
+   this.socket.write(JSON.stringify({id,type,data})+'\n');
+  });
+ }
+}
+
 class ObsLink{
- constructor({home,notify=()=>{},credentials={load:()=>'',save:()=>{},available:()=>false},WebSocketImpl,timeout=5000,reconnectDelay=3000}={}){
+ constructor({home,notify=()=>{},credentials={load:()=>'',save:()=>{},available:()=>false},WebSocketImpl,timeout=5000,reconnectDelay=3000,pipe=false,disabled=false}={}){
   this.notify=notify;this.credentials=credentials;this.WebSocketImpl=WebSocketImpl;this.timeout=timeout;this.reconnectDelay=reconnectDelay;
+  this.pipe=pipe;this.disabled=disabled;
   this.config={...obsDefaults,singing_enabled:false,singing_latency_ms:400};this.running=false;this.connection=null;this.applied=null;this.queue=Promise.resolve();this.closing=false;this.blocked=false;this.sessionPassword='';this.revision=0;
   this.maintenance=false;
   this.video=new ObsVideoSources(home);
@@ -72,6 +120,7 @@ class ObsLink{
  }
  status(){return {...this.state,hasPassword:Boolean(this.credentials.load()),canRemember:this.credentials.available()};}
  async confirmDesktopMute(confirm){
+  if(this.pipe&&!this.connection?.identified)await this.flush();
   const connection=this.connection;
   if(!connection?.identified)return;
   const {desktop1,desktop2}=await connection.request('GetSpecialInputs');
@@ -108,7 +157,7 @@ class ObsLink{
  }
  flush(){clearTimeout(this.syncTimer);return this.enqueue(()=>this.sync());}
  wantsConnection(){
-  return Boolean(this.credentials.load()||this.config.obs_enabled||(this.config.mix_enabled&&this.running)||
+  return !this.disabled&&Boolean(this.pipe||this.credentials.load()||this.config.obs_enabled||(this.config.mix_enabled&&this.running)||
    this.video.pending||this.mix.pending||this.desktopMute.pending||this.previewSplit.pending);
  }
  retry(){
@@ -118,25 +167,27 @@ class ObsLink{
   this.retryTimer.unref?.();
  }
  async open(port,password){
-  this.publish({state:'connecting',error:'',message:'OBSに接続しています…'});
-  const connection=new ObsSocket(port,password,{WebSocketImpl:this.WebSocketImpl,timeout:this.timeout,onClose:error=>{
+  if(!this.pipe)this.publish({state:'connecting',error:'',message:'OBSに接続しています…'});
+  const Transport=this.pipe?ObsPipe:ObsSocket;
+  const connection=new Transport(port,password,{WebSocketImpl:this.WebSocketImpl,timeout:this.timeout,onClose:error=>{
    if(this.connection!==connection)return;
    this.connection=null;
    if([4009,4010,4011].includes(error.closeCode))this.blocked=true;
-   this.publish({state:'disconnected',inputs:[],videoInputs:[],appliedOffset:null,appliedVideoOffset:null,error:error.message,message:''});this.retry();
+   this.publish({state:'disconnected',inputs:[],videoInputs:[],appliedOffset:null,appliedVideoOffset:null,error:this.pipe?'':error.message,message:''});this.retry();
   }});
   this.connection=connection;
   try{
    await connection.ready;
    const version=await connection.request('GetVersion');
    connection.availableRequests=version.availableRequests||[];
-   if(!['GetInputAudioSyncOffset','SetInputAudioSyncOffset'].every(name=>version.availableRequests?.includes(name)))throw Error('このOBSは音声の同期オフセット操作に対応していません。');
+   if(this.pipe){if(version.protocolVersion!==1)throw Error('YuiVoiceChangerのOBSプラグインを更新してください。');}
+   else if(!['GetInputAudioSyncOffset','SetInputAudioSyncOffset'].every(name=>version.availableRequests?.includes(name)))throw Error('このOBSは音声の同期オフセット操作に対応していません。');
    this.publish({state:'connected',error:'',message:'接続済み'});
    await this.inputs();
   }catch(error){
    if([4009,4010,4011].includes(error.closeCode))this.blocked=true;
    connection.close();if(this.connection===connection)this.connection=null;
-   this.publish({state:'disconnected',inputs:[],videoInputs:[],appliedOffset:null,appliedVideoOffset:null,error:error.message,message:''});throw error;
+   this.publish({state:'disconnected',inputs:[],videoInputs:[],appliedOffset:null,appliedVideoOffset:null,error:error.unavailable?'':error.message,message:''});throw error;
   }
  }
  async inputs(){
@@ -177,7 +228,7 @@ class ObsLink{
   if(this.config.mix_enabled)target=Math.max(0,target+(this.config.obs_video_correction_ms??0));
   const manual=(this.config.mix_enabled||this.config.obs_enabled)&&this.config.obs_video_enabled?this.config.obs_video_sources||[]:[];
   const inputs=manual.filter(item=>item.inputUuid||item.inputName).map(selected=>{
-   const input=this.state.videoInputs.find(item=>keyOf(item)===keyOf(selected));
+   const input=this.state.videoInputs.find(item=>selected.inputUuid?item.inputUuid===selected.inputUuid:item.inputName===selected.inputName);
    if(!input)throw Error(`同期する映像「${selected.inputName||selected.inputUuid}」が見つかりません。OBSのソース一覧を更新してください。`);
    return input;
   });
@@ -208,7 +259,7 @@ class ObsLink{
   if(this.connection&&this.connection.port!==this.config.obs_port){await this.restore();this.connection.close();this.connection=null;this.publish({state:'disconnected',inputs:[]});}
   if(!this.connection&&!this.blocked&&this.wantsConnection()){
    try{await this.open(this.config.obs_port,this.sessionPassword||this.credentials.load());}
-   catch(error){this.retry();throw error;}
+   catch(error){this.retry();if(error.unavailable)return;throw error;}
   }
   if(revisionAtStart!==this.revision)return;
   if(!this.keepDesktopMuted&&this.desktopMute.pending)await this.desktopMute.restore(this.connection);
@@ -262,7 +313,7 @@ class ObsLink{
    this.publish({});await this.sync();return this.status();
   });
  }
- refresh(){return this.enqueue(async()=>{await this.inputs();await this.sync();return this.status();});}
+ refresh(){return this.enqueue(async()=>{if(this.connection?.identified||!this.pipe)await this.inputs();await this.sync();return this.status();});}
  disconnect(){
   clearTimeout(this.syncTimer);clearTimeout(this.retryTimer);this.blocked=true;
   return this.enqueue(async()=>{await this.restore();this.connection?.close();this.connection=null;this.publish({state:'disconnected',inputs:[],videoInputs:[],error:'',message:'',appliedOffset:null,appliedVideoOffset:null});return this.status();});
@@ -272,4 +323,4 @@ class ObsLink{
   return this.enqueue(async()=>{try{await this.restore();}finally{this.connection?.close();this.connection=null;}});
  }
 }
-module.exports={ObsLink,ObsSocket};
+module.exports={ObsLink,ObsSocket,ObsPipe};

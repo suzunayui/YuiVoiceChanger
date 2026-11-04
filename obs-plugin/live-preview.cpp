@@ -22,6 +22,9 @@ extern struct obs_source_info gpu_delay_filter;
 void yui_set_live_preview(bool enabled);
 }
 
+void startYuiControl();
+void stopYuiControl();
+
 using Scene = std::unique_ptr<obs_scene_t, decltype(&obs_scene_release)>;
 using Item = std::unique_ptr<obs_sceneitem_t, decltype(&obs_sceneitem_release)>;
 using Source = std::unique_ptr<obs_source_t, decltype(&obs_source_release)>;
@@ -294,6 +297,9 @@ static void togglePreview()
 static void frontendEvent(enum obs_frontend_event event, void *)
 {
  switch (event) {
+ case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+  startYuiControl();
+  break;
  case OBS_FRONTEND_EVENT_SCENE_CHANGED:
  case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
   updateScene();
@@ -302,8 +308,11 @@ static void frontendEvent(enum obs_frontend_event event, void *)
   if (livePreview)
    livePreview->setScene(nullptr);
   break;
- case OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED:
  case OBS_FRONTEND_EVENT_EXIT:
+  stopYuiControl();
+  stopPreview();
+  break;
+ case OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED:
   stopPreview();
   break;
  default:
@@ -327,6 +336,7 @@ bool obs_module_load(void)
 
 void obs_module_unload(void)
 {
+ stopYuiControl();
  obs_frontend_remove_event_callback(frontendEvent, nullptr);
  stopPreview();
  delete action.data();

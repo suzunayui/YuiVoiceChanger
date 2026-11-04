@@ -37,11 +37,7 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),asse
    assert.equal(await page.getByRole('slider',{name:'補正値',exact:true}).count(),0);
    const compact=await page.evaluate(()=>({timing:document.querySelector('.stream-mix').getBoundingClientRect().height,obs:document.querySelector('.obs-integration').getBoundingClientRect().height}));
    assert(compact.timing<=400&&compact.obs<=320,JSON.stringify(compact));
-   await page.getByRole('button',{name:'OBS連携の設定',exact:true}).click();
-   const settings=page.getByRole('dialog',{name:'OBS連携の設定',exact:true});
-   const connection=await settings.evaluate(element=>{const password=element.querySelector('.obs-connection-fields input[type=password]').getBoundingClientRect(),button=element.querySelector('.obs-connection-fields>.obs-button').getBoundingClientRect();return {passwordWidth:password.width,right:password.right,left:button.left,aligned:Math.abs(password.bottom-button.bottom)<1};});
-   assert(connection.passwordWidth>=48&&connection.left>connection.right&&connection.aligned,JSON.stringify(connection));
-   await settings.getByRole('button',{name:'閉じる',exact:true}).click();
+   await expect(page.getByRole('region',{name:'OBSプラグイン'}).getByRole('button',{name:'一覧を更新'})).toBeVisible();
    await expect(page.getByRole('button',{name:'テスト音声でOBSのずれを自動調整',exact:true})).toHaveCount(0);
    await expect(page.getByRole('button',{name:'ずれを確認',exact:true})).toHaveCount(0);
    if(process.env.YVC_TEST_SCREENSHOT&&width===1280)await page.screenshot({path:process.env.YVC_TEST_SCREENSHOT});

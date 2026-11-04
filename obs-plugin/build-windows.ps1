@@ -37,11 +37,11 @@ try {
     & cl.exe @common /std:c11 /c "$source/preview-delay.c"
     if ($LASTEXITCODE) { throw 'Filter compilation failed' }
 
-    $qtIncludes = @('include','include/QtCore','include/QtGui','include/QtWidgets') | ForEach-Object { "/I$QtSdk/$_" }
-    & cl.exe @common @qtIncludes /std:c++17 /EHsc /Zc:__cplusplus /permissive- "/I$ObsSource/frontend/api" /c "$source/live-preview.cpp"
+    $qtIncludes = @('include','include/QtCore','include/QtGui','include/QtWidgets','include/QtNetwork') | ForEach-Object { "/I$QtSdk/$_" }
+    & cl.exe @common @qtIncludes /std:c++17 /EHsc /Zc:__cplusplus /permissive- "/I$ObsSource/frontend/api" /c "$source/live-preview.cpp" "$source/control-pipe.cpp"
     if ($LASTEXITCODE) { throw 'Preview compilation failed' }
 
-    & link.exe /nologo /dll /out:yui-live-preview.dll live-preview.obj preview-delay.obj obs.lib obs-frontend-api.lib "/libpath:$QtSdk/lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib
+    & link.exe /nologo /dll /out:yui-live-preview.dll live-preview.obj control-pipe.obj preview-delay.obj obs.lib obs-frontend-api.lib "/libpath:$QtSdk/lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6Network.lib
     if ($LASTEXITCODE) { throw 'Plugin linking failed' }
 } finally {
     Pop-Location
