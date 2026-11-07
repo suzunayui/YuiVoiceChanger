@@ -4,7 +4,7 @@ const {mixDefaults}=require('./mix-config.cjs');
 const defaults = () => ({
  engine_version:2, beatrice_model:'', beatrice_voice:0, beatrice_model_alias:'', beatrice_model_icon:'', beatrice_pitch:14, beatrice_formant:0,
  beatrice_block:.08, schedule_ms:160, input_gain:12, gain:0, python:'',
- input:-1, output:-1, input_name:'', output_name:'', singing_enabled:false,singing_latency_ms:400,...effectDefaults,...obsDefaults,...mixDefaults
+ input:-1, output:-1, input_name:'', output_name:'', singing_enabled:false,singing_latency_ms:400,singing_block_ms:80,...effectDefaults,...obsDefaults,...mixDefaults
  ,compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000,hotkeys_enabled:false
 });
 function normalize(value, {importing=false}={}) {
@@ -17,7 +17,7 @@ function normalize(value, {importing=false}={}) {
   const v=value[key];
   if(key==='obs_video_sources'){clean[key]=videoSources;continue;}
   if (typeof v!==typeof base[key] || (typeof v==='number'&&!Number.isFinite(v))) throw Error(`設定値が正しくありません: ${key}`);
-  const range=ranges[key]||effectRanges[key]||(key==='mix_latency_ms'?[200,3000]:key==='mix_music_gain'?[-24,6]:key==='singing_latency_ms'?[200,2000]:key==='obs_port'?[1,65535]:['obs_correction_ms','obs_path_delay_ms'].includes(key)?[-1000,1000]:null);
+  const range=ranges[key]||effectRanges[key]||(key==='mix_latency_ms'?[200,3000]:key==='mix_music_gain'?[-24,6]:key==='singing_latency_ms'?[200,2000]:key==='singing_block_ms'?[80,400]:key==='obs_port'?[1,65535]:['obs_correction_ms','obs_path_delay_ms'].includes(key)?[-1000,1000]:null);
   if (range && (v<range[0]||v>range[1])) throw Error(`設定値が範囲外です: ${key}`);
   if ((key in effectRanges||['singing_latency_ms','obs_port','obs_correction_ms','obs_path_delay_ms','obs_video_correction_ms'].includes(key))&&!Number.isInteger(v)) throw Error(`設定値は整数で入力してください: ${key}`);
   if (['obs_input_uuid','obs_input_name','obs_video_uuid','obs_video_name'].includes(key)&&(v.length>512||/[\x00-\x1f\x7f]/.test(v)))throw Error('OBSのソース名が正しくありません。');
@@ -31,6 +31,7 @@ function normalize(value, {importing=false}={}) {
   if (key==='beatrice_formant'&&v*2!==Math.round(v*2)) throw Error('フォルマントは0.5半音刻みです。');
   if (!legacy&&key==='beatrice_block'&&v!==.08) throw Error('更新間隔は80msです。');
   if (key==='schedule_ms'&&v!==160) throw Error('出力の待ち時間は160msです。');
+  if (key==='singing_block_ms'&&(!Number.isInteger(v)||v%80)) throw Error('変換の間隔は80〜400msの80ms刻みで指定してください。');
   if(key==='obs_path_signature'&&v.length>8192)throw Error('遅延の測定情報が正しくありません。');
   if(key.startsWith('mix_')&&typeof v==='string'&&(v.length>512||/[\x00-\x1f\x7f]/.test(v)))throw Error('MIXの音声デバイス・ソース名が正しくありません。');
   if(['mix_latency_ms','mix_music_gain'].includes(key)&&!Number.isInteger(v))throw Error('MIXの待ち時間・ゲインは整数で指定してください。');

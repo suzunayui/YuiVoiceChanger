@@ -19,6 +19,7 @@ export default function SingingSettings({config,active,effectsDisabled,running,m
   <div className="singing-sidebar">
   <StreamMix config={config} active={active} disabled={effectsDisabled} running={running} metrics={metrics} onUpdate={onUpdate}>
    <Slider label="固定遅延" help={config.mix_enabled?'声と伴奏をそろえて出力するまでの待ち時間です。OBSまでの機器の遅延は別に加わります。変更は停止中に行います。':'マイク入力からOBSに届くまでの目標遅延です。自動測定後は経路の遅れを差し引いて声の出力時刻を調整します。変更は停止中に行います。'} value={config.mix_enabled?config.mix_latency_ms:config.singing_latency_ms+config.obs_correction_ms} min={200} max={3000} step={1} unit="ms" signed={false} disabled={active} onChange={value=>{if(config.mix_enabled){onUpdate({mix_latency_ms:value});return;}const base=Math.min(value,Math.max(200,Math.min(2000,Math.max(config.singing_latency_ms,value-1000))));onUpdate({singing_latency_ms:base,obs_correction_ms:value-base,obs_delay_manual:true});}}/>
+   <Slider label="変換の間隔" help="声を変換する間隔です。長くするとPCの負荷が下がり、音の途切れが減ります。その分、固定遅延に必要な時間が増えます。初期値は80msです。変更は停止中に行います。" value={config.singing_block_ms} min={80} max={400} step={80} buttonStep={80} unit="ms" signed={false} disabled={active} onChange={value=>onUpdate({singing_block_ms:value})}/>
    {!config.mix_enabled&&<LatencyCalibration config={config} status={calibration} disabled={active} onStatus={onCalibration} buttonLabel="処理時間から設定"/>}
   </StreamMix>
   {window.yvc.platform==='win32'&&<ObsIntegration config={config} disabled={effectsDisabled} onUpdate={onUpdate}/>}

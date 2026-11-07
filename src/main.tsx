@@ -16,12 +16,12 @@ import {obsDefaults,type ObsConfig} from './ObsIntegration';
 import {idleCalibration,type CalibrationStatus} from './LatencyCalibration';
 import errorText from './errorText';
 
-export type Config=EffectConfig&ObsConfig&MixConfig&{singing_enabled:boolean;singing_latency_ms:number;engine_version:number;beatrice_model:string;beatrice_voice:number;beatrice_model_alias:string;beatrice_model_icon:string;beatrice_pitch:number;beatrice_formant:number;beatrice_block:number;schedule_ms:number;input_gain:number;gain:number;python:string;input:number;output:number;input_name:string;output_name:string;compute:string;training_source:string;training_audio:string;teacher_pitch:number;training_steps:number;hotkeys_enabled:boolean};
+export type Config=EffectConfig&ObsConfig&MixConfig&{singing_enabled:boolean;singing_latency_ms:number;singing_block_ms:number;engine_version:number;beatrice_model:string;beatrice_voice:number;beatrice_model_alias:string;beatrice_model_icon:string;beatrice_pitch:number;beatrice_formant:number;beatrice_block:number;schedule_ms:number;input_gain:number;gain:number;python:string;input:number;output:number;input_name:string;output_name:string;compute:string;training_source:string;training_audio:string;teacher_pitch:number;training_steps:number;hotkeys_enabled:boolean};
 type Device={id:number;name:string;host:string;inputs:number;outputs:number};
 type ComputeDevice={id:string;kind:string;name:string;available:boolean;reason?:string;memory_gb?:number};
 type RecentModel={id:string;path:string;voice:number;label:string;alias:string;icon:string;available:boolean};
 declare global{interface Window{yvc:{platform:string;invoke:(action:string,payload?:unknown)=>Promise<any>;subscribe:(callback:(event:any)=>void)=>()=>void}}}
-const empty:Config={...effectDefaults,...obsDefaults,...mixDefaults,singing_enabled:false,singing_latency_ms:400,engine_version:2,beatrice_model:'',beatrice_voice:0,beatrice_model_alias:'',beatrice_model_icon:'',beatrice_pitch:14,beatrice_formant:0,beatrice_block:.08,schedule_ms:160,input_gain:12,gain:0,python:'',input:-1,output:-1,input_name:'',output_name:'',compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000,hotkeys_enabled:false};
+const empty:Config={...effectDefaults,...obsDefaults,...mixDefaults,singing_enabled:false,singing_latency_ms:400,singing_block_ms:80,engine_version:2,beatrice_model:'',beatrice_voice:0,beatrice_model_alias:'',beatrice_model_icon:'',beatrice_pitch:14,beatrice_formant:0,beatrice_block:.08,schedule_ms:160,input_gain:12,gain:0,python:'',input:-1,output:-1,input_name:'',output_name:'',compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000,hotkeys_enabled:false};
 const supported=['win32','darwin'].includes(window.yvc.platform);
 const audioHost=window.yvc.platform==='darwin'?'Core Audio':'Windows WASAPI';
 const hotkeyPrefix=window.yvc.platform==='darwin'?'⌘+Option':'Ctrl+Alt';

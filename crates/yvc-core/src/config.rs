@@ -60,7 +60,7 @@ pub fn defaults() -> Config {
     let mut base = as_map(json!({
         "engine_version": 2, "beatrice_model": "", "beatrice_voice": 0, "beatrice_model_alias": "", "beatrice_model_icon": "",
         "beatrice_pitch": 14, "beatrice_formant": 0, "beatrice_block": 0.08, "schedule_ms": 160, "input_gain": 12, "gain": 0,
-        "python": "", "input": -1, "output": -1, "input_name": "", "output_name": "", "singing_enabled": false, "singing_latency_ms": 400,
+        "python": "", "input": -1, "output": -1, "input_name": "", "output_name": "", "singing_enabled": false, "singing_latency_ms": 400, "singing_block_ms": 80,
     }));
     base.extend(effect_defaults());
     base.extend(obs_defaults());
@@ -152,6 +152,7 @@ fn range_for(key: &str, legacy: bool) -> Option<(f64, f64)> {
         "mix_latency_ms" => (200.0, 3000.0),
         "mix_music_gain" => (-24.0, 6.0),
         "singing_latency_ms" => (200.0, 2000.0),
+        "singing_block_ms" => (80.0, 400.0),
         "obs_port" => (1.0, 65535.0),
         "obs_correction_ms" | "obs_path_delay_ms" => (-1000.0, 1000.0),
         _ => return None,
@@ -225,6 +226,9 @@ pub fn normalize(value: &Value, importing: bool) -> Result<Config, String> {
         }
         if key == "training_steps" && !is_integer(v) {
             return Err("学習回数は整数です。".to_string());
+        }
+        if key == "singing_block_ms" && !(is_integer(v) && v.as_f64().is_some_and(|ms| ms % 80.0 == 0.0)) {
+            return Err("変換の間隔は80〜400msの80ms刻みで指定してください。".to_string());
         }
         if key == "beatrice_voice" && !is_integer(v) {
             return Err("声の番号は整数です。".to_string());

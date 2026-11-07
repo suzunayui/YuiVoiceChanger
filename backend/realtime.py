@@ -289,7 +289,7 @@ class Realtime:
             if self.stop_event.is_set():
                 return
             if key is not None:
-                self.cached_model = (key, pipeline.model, pipeline.config['block'])
+                self.cached_model = (key, pipeline.model, getattr(pipeline, 'measured_block', pipeline.config['block']))
             block = pipeline.block
             budget_ms=round(pipeline.config['block']*1000)
             schedule_ms=budget_ms*2

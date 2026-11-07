@@ -4,7 +4,7 @@ const {effectDefaults}=require('./singing-config.cjs');
 const {obsDefaults}=require('./obs-config.cjs');
 const {mixDefaults}=require('./mix-config.cjs');
 const keys=['beatrice_model','beatrice_voice','beatrice_model_alias','beatrice_model_icon','beatrice_pitch','beatrice_formant',
- 'input','output','input_name','output_name','input_gain','gain','compute','singing_enabled','singing_latency_ms',
+ 'input','output','input_name','output_name','input_gain','gain','compute','singing_enabled','singing_latency_ms','singing_block_ms',
  ...Object.keys(effectDefaults),...Object.keys(obsDefaults),...Object.keys(mixDefaults)];
 const requiredKeys=keys.filter(key=>!Object.hasOwn(mixDefaults,key)&&
  !['obs_video_enabled','obs_video_sources','obs_video_correction_ms','obs_delay_manual','obs_path_delay_ms','obs_path_signature'].includes(key));

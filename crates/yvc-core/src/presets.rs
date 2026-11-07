@@ -11,7 +11,7 @@ use unicode_normalization::UnicodeNormalization;
 fn keys() -> Vec<String> {
     let mut keys: Vec<String> = [
         "beatrice_model", "beatrice_voice", "beatrice_model_alias", "beatrice_model_icon", "beatrice_pitch", "beatrice_formant",
-        "input", "output", "input_name", "output_name", "input_gain", "gain", "compute", "singing_enabled", "singing_latency_ms",
+        "input", "output", "input_name", "output_name", "input_gain", "gain", "compute", "singing_enabled", "singing_latency_ms", "singing_block_ms",
     ]
     .iter()
     .map(|key| key.to_string())

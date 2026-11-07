@@ -148,6 +148,14 @@ class AlignedOverlap:
         return segment[:self.block]
 
 
+def singing_block_ms(config):
+    """Each conversion reads the same few seconds of history, so a longer interval cuts the load."""
+    value = config.get('singing_block_ms', 80)
+    if type(value) is not int or value not in range(80, 401, 80):
+        raise ValueError('変換の間隔は80〜400msの80ms刻みで指定してください。')
+    return value
+
+
 class BeatricePipeline:
     rate = input_rate = 48000
     device = pitch_device = 'cuda'
@@ -160,6 +168,7 @@ class BeatricePipeline:
             raise ValueError('GPU直接変換の更新間隔は80msです。')
         self.set_controls(config)
         self.fixed_alignment = singing_settings(config)[0]
+        self.minimum_block_ms = singing_block_ms(config) if self.fixed_alignment else 80
         self.previous_input_gain, self.previous_output_gain = self.input_gain, self.output_gain
         notify('声のモデルを読み込み中' if model is None else '読み込み済みの声のモデルを使用')
         self.model = DirectModel(config.get('beatrice_model', ''),config.get('compute','auto'),config.get('beatrice_voice',0)) if model is None else model
@@ -168,6 +177,8 @@ class BeatricePipeline:
         self.format = self.model.source_format
         self.config = {'block': block}
         self.block = round(block*48000)
+        # What the hardware needs, kept apart from the chosen singing interval for model reuse.
+        self.measured_block = block
         self.history_samples = 153600
         self.guard24, self.overlap48, self.search48, self.edge24 = 960, 960, 480, 48
         self.down = torchaudio.transforms.Resample(48000, 16000)
@@ -191,15 +202,19 @@ class BeatricePipeline:
         anchor_from_end = self.guard24 + (self.block+self.overlap48+self.search48)//2 - self.search48//4 - self.overlap48//4 - 120
         self.excitation_state = StreamingExcitation(self.block//2, anchor_from_end) if self.fixed_alignment else None
 
+    def use_block(self, block_ms):
+        self.config['block'] = block_ms/1000
+        self.block = block_ms*48
+        self.joiner = AlignedOverlap(self.block, self.overlap48, self.search48, fixed=self.fixed_alignment)
+        self.reset()
+
     def restore_budget(self, block_seconds):
         """Reuse the measured CPU/GPU block size without warming the model again."""
         block_ms = round(block_seconds*1000)
         if block_ms not in range(80, 641, 80):
             raise ValueError('保持した更新間隔が不正です。')
-        self.config['block'] = block_ms/1000
-        self.block = block_ms*48
-        self.joiner = AlignedOverlap(self.block, self.overlap48, self.search48, fixed=self.fixed_alignment)
-        self.reset()
+        self.measured_block = block_ms/1000
+        self.use_block(max(block_ms, self.minimum_block_ms))
 
     def warmup(self, stop_event):
         times=[]
@@ -208,13 +223,12 @@ class BeatricePipeline:
                 return
             self.convert(np.zeros(self.block, np.float32))
             times.append(self.stats['ms'])
+        block_ms=80
         if self.device=='cpu':
             # Reserve headroom on CPU; keep the chosen clock fixed for this run.
             block_ms=max(80,min(640,math.ceil(max(times[1:])*1.6/80)*80))
-            self.config['block']=block_ms/1000
-            self.block=block_ms*48
-            self.joiner=AlignedOverlap(self.block,self.overlap48,self.search48,fixed=self.fixed_alignment)
-        self.reset()
+        self.measured_block=block_ms/1000
+        self.use_block(max(block_ms,self.minimum_block_ms))
 
     def convert(self, audio):
         import torch

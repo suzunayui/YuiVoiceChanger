@@ -28,6 +28,7 @@ const inputs = [
   { obs_video_uuid: 'u', obs_video_name: 'n' }, { obs_video_name: 'n' }, { obs_video_uuid: '' },
   { mix_enabled: true }, { mix_enabled: true, singing_enabled: false }, { mix_latency_ms: 200 }, { mix_latency_ms: 199 }, { mix_latency_ms: 3000 }, { mix_latency_ms: 3001 }, { mix_latency_ms: 200.5 }, { mix_music_gain: 6 }, { mix_music_gain: 7 }, { mix_music_gain: -24 }, { mix_music_gain: -25 }, { mix_music_gain: 1.5 }, { mix_device_id: 'x' }, { mix_device_name: long(513) }, { mix_voice_name: 'a\nb' }, { mix_voice_uuid: 5 },
   { teacher_pitch: 25 }, { training_steps: 1 }, { training_steps: 0 }, { training_steps: 100000 }, { training_steps: 100001 }, { training_steps: 1.5 }, { training_source: 'a.pth' }, { training_audio: 'd' }, { hotkeys_enabled: true }, { hotkeys_enabled: 'yes' },
+  { singing_block_ms: 80 }, { singing_block_ms: 160 }, { singing_block_ms: 400 }, { singing_block_ms: 0 }, { singing_block_ms: 100 }, { singing_block_ms: 480 }, { singing_block_ms: 160.5 }, { singing_block_ms: '160' },
   { unknown_key: 1 }, { beatrice_pitch: 5, unknown_key: 'x' },
 ];
 
