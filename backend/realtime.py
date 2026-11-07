@@ -416,7 +416,8 @@ class Realtime:
                         'output_started': scheduled.started, 'output_samples': scheduled.cursor,
                         'schedule_ms': schedule_ms, 'queue_ms': incoming.qsize()*budget_ms,
                         'latency_estimate_ms': estimate_latency_ms(schedule_ms,pipeline.stats['lookback_ms'],io_latency_ms),
-                        'budget_ms': budget_ms, 'over_budget': pipeline.stats['ms'] > budget_ms})
+                        'budget_ms': budget_ms, 'over_budget': pipeline.stats['ms'] > budget_ms,
+                        **({'music_db': mixer.level.take_db(), 'music_low': mixer.level.low} if mixer else {})})
                     last_notice = now
         except Exception as exc:
             import traceback

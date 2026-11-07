@@ -62,3 +62,8 @@ footer .footer-actions>.mute-button:focus-visible{outline:2px solid #792929;outl
 .status.muted{color:#b83f3f}
 .status.muted i{background:#b83f3f}
 .hotkey-setup label{display:flex;align-items:center;gap:8px}
+.mix-music-level{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px}
+.mix-music-level span{flex-shrink:0}
+.mix-music-level strong{flex-shrink:0;min-width:48px;text-align:right;font-weight:600}
+.mix-music-meter{flex:1;min-width:0;height:8px;border-radius:4px;background:#e6ddd5;overflow:hidden}
+.mix-music-meter i{display:block;height:100%;background:#a86450;transition:width .15s linear}

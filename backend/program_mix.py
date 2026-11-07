@@ -2,6 +2,7 @@
 import math
 import threading
 import time
+from collections import deque
 import numpy as np
 
 RATE=48000
@@ -108,11 +109,37 @@ class TimedMusic:
         audio[~valid]=0
         return audio.astype(np.float32),int((~valid).sum())
 
+class MusicLevel:
+    """Peak of the captured accompaniment, before the gain, read by the conversion loop."""
+    FLOOR_DB=-90.
+    SILENCE=10**(-60/20)
+    LOW=10**(-20/20)
+    BLOCKS_PER_SECOND=100
+    WINDOW_SECONDS=10
+
+    def __init__(self):
+        self.seconds=deque(maxlen=self.WINDOW_SECONDS);self.current=0.;self.blocks=0;self.peak=0.
+
+    def record(self,peak):
+        self.peak=max(self.peak,peak);self.current=max(self.current,peak);self.blocks+=1
+        if self.blocks==self.BLOCKS_PER_SECOND:
+            self.seconds.append(self.current);self.current=0.;self.blocks=0
+
+    def take_db(self):
+        peak,self.peak=self.peak,0.
+        return 20*math.log10(peak) if peak>10**(self.FLOOR_DB/20) else self.FLOOR_DB
+
+    @property
+    def low(self):
+        # Music normally peaks near full scale; silence just means nothing is playing yet.
+        if len(self.seconds)<self.WINDOW_SECONDS:return False
+        return self.SILENCE<max(*self.seconds,self.current)<self.LOW
+
 class ProgramMix:
     def __init__(self,device_id,output_name,gain_db=-6,loopback=None):
         from backend.wasapi_loopback import Loopback
         self.music=TimedMusic();self.clock=InputClock();self.stop=threading.Event();self.ready=threading.Event();self.failure=''
-        self.gain=self.previous_gain=10**(gain_db/20);self.missing=0;self.limited=0
+        self.gain=self.previous_gain=10**(gain_db/20);self.missing=0;self.limited=0;self.level=MusicLevel()
         self.capture=loopback or Loopback(device_id,stereo=True,forbidden_name=output_name,on_gap=self.music.gap)
         self.thread=threading.Thread(target=self.run,daemon=True)
 
@@ -129,6 +156,7 @@ class ProgramMix:
         self.clock.feed(position,len(voice),timing,status)
         music,missing=self.music.read(self.clock.times(position-source_offset,len(voice)))
         self.missing+=missing
+        self.level.record(float(np.max(np.abs(music))))
         gain=np.linspace(self.previous_gain,self.gain,len(voice),dtype=np.float32)
         self.previous_gain=self.gain
         output=music*gain[:,None]+voice[:,None]
