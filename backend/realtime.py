@@ -51,6 +51,31 @@ def devices():
             for i, d in enumerate(sd.query_devices())]
 
 
+# A late callback on the low-latency buffer silently loses input and output blocks (WASAPI
+# reports no status). Singing already waits hundreds of ms, so it can afford a larger buffer.
+SINGING_DEVICE_LATENCY = .1
+LATE_CALLBACK_SECONDS = .03
+LATE_REPORT_SECONDS = 10
+
+
+def open_audio_stream(open_stream, singing):
+    """Return the stream and the latency that timing is computed from.
+
+    Measured on WASAPI: 0.1 s reports about 176 ms more than 'low' but the real round trip
+    grows only about 6 ms. Timing keeps the 'low' figure so voice stays on its target time.
+    """
+    import sounddevice as sd
+    stream = open_stream('low')
+    io_latency_ms = sum(stream.latency)*1000
+    if singing:
+        stream.close()
+        try:
+            stream = open_stream(SINGING_DEVICE_LATENCY)
+        except sd.PortAudioError:
+            stream = open_stream('low')
+    return stream, io_latency_ms
+
+
 def audio_settings(sd, input_id, output_id, output_channels, rate=48000):
     hosts = sd.query_hostapis()
     def host_settings(device):
@@ -263,9 +288,17 @@ class Realtime:
             # fixed delay queued; the conversion gate keeps what was said while muted out of
             # that queue and the effect tails, so unmuting never replays it.
             output_gate = conversion_gate = 0. if self.muted else 1.
+            last_callback = None
+            late_callbacks = 0
+            largest_gap = 0.
 
             def callback(indata, outdata, frames, timing, status):
-                nonlocal cursor, sequence, output_gate
+                nonlocal cursor, sequence, output_gate, last_callback, late_callbacks, largest_gap
+                arrived = time.perf_counter()
+                if last_callback is not None and arrived-last_callback > LATE_CALLBACK_SECONDS:
+                    late_callbacks += 1
+                    largest_gap = max(largest_gap, arrived-last_callback)
+                last_callback = arrived
                 counters['device_errors'] += int(bool(status))
                 position=scheduled.cursor
                 voice=scheduled.take(frames)
@@ -313,12 +346,11 @@ class Realtime:
                 mixer=ProgramMix(config.get('mix_device_id','default'),sd.query_devices(output_id)['name'],self.mix_music_gain)
                 self.program_mix=mixer;mixer.start()
             extra = audio_settings(sd, input_id, output_id, output_channels)
-            stream = sd.Stream(device=(input_id, output_id), samplerate=48000, blocksize=480,
-                channels=(1, output_channels), dtype='float32', latency='low',
-                extra_settings=extra, callback=callback)
+            stream, io_latency_ms = open_audio_stream(lambda latency: sd.Stream(device=(input_id, output_id), samplerate=48000, blocksize=480,
+                channels=(1, output_channels), dtype='float32', latency=latency,
+                extra_settings=extra, callback=callback), bool(config.get('singing_enabled')))
             if self.stop_event.is_set():
                 return
-            io_latency_ms=sum(stream.latency)*1000
             if mixer:
                 from backend.program_mix import settings as mix_schedule
                 manual_timing=None
@@ -341,12 +373,17 @@ class Realtime:
             last_sequence = -1
             last_notice = 0
             clock_report = (0, 0)
+            late_reported = 0
+            late_report_time = 0.
             while not self.stop_event.is_set():
                 if callback_failure[0]:raise ValueError(callback_failure[0])
                 if mixer and mixer.failure:raise ValueError(mixer.failure)
                 if mixer and (mixer.clock.outliers,mixer.clock.resyncs)!=clock_report:
                     clock_report=(mixer.clock.outliers,mixer.clock.resyncs)
                     print(f'MIX clock: jumps={clock_report[0]} resyncs={clock_report[1]} largest={mixer.clock.largest_error*1000:.0f}ms',file=sys.stderr,flush=True)
+                if late_callbacks!=late_reported and time.monotonic()-late_report_time>=LATE_REPORT_SECONDS:
+                    late_reported,late_report_time=late_callbacks,time.monotonic()
+                    print(f'Audio callback: late={late_reported} largest_gap={largest_gap*1000:.0f}ms',file=sys.stderr,flush=True)
                 try:
                     seq, audio = incoming.get(timeout=.1)
                 except queue.Empty:
