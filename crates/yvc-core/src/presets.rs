@@ -24,7 +24,8 @@ fn keys() -> Vec<String> {
 
 fn required_keys() -> Vec<String> {
     let mix = mix_defaults();
-    let optional = ["obs_video_enabled", "obs_video_sources", "obs_video_correction_ms", "obs_delay_manual", "obs_path_delay_ms", "obs_path_signature"];
+    // singing_block_ms came after presets existed; older ones were made with its default.
+    let optional = ["obs_video_enabled", "obs_video_sources", "obs_video_correction_ms", "obs_delay_manual", "obs_path_delay_ms", "obs_path_signature", "singing_block_ms"];
     keys().into_iter().filter(|key| !mix.contains_key(key) && !optional.contains(&key.as_str())).collect()
 }
 
@@ -367,5 +368,17 @@ mod tests {
         assert_eq!(presets.active, "abc");
         fs::write(temp.0.join("presets.json"), json!({"version": 2, "presets": []}).to_string()).unwrap();
         assert!(Presets::new(&temp.0).list(None).is_err());
+    }
+
+    #[test]
+    fn reads_presets_saved_before_the_singing_interval_existed() {
+        let temp = Temp::new();
+        let mut settings = snapshot(&Value::Object(with(json!({"beatrice_pitch": 7})))).unwrap();
+        settings.remove("singing_block_ms");
+        let file = json!({"version": 1, "presets": [{"id": "abc", "name": "古い", "settings": settings}], "active": "abc"});
+        fs::write(temp.0.join("presets.json"), file.to_string()).unwrap();
+        let presets = Presets::new(&temp.0);
+        assert!(presets.list(None).is_ok(), "an older preset is not a broken file");
+        assert_eq!(presets.items[0]["settings"]["singing_block_ms"], 80, "it was made with the old 80 ms");
     }
 }

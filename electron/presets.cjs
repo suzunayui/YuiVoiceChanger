@@ -7,7 +7,9 @@ const keys=['beatrice_model','beatrice_voice','beatrice_model_alias','beatrice_m
  'input','output','input_name','output_name','input_gain','gain','compute','singing_enabled','singing_latency_ms','singing_block_ms',
  ...Object.keys(effectDefaults),...Object.keys(obsDefaults),...Object.keys(mixDefaults)];
 const requiredKeys=keys.filter(key=>!Object.hasOwn(mixDefaults,key)&&
- !['obs_video_enabled','obs_video_sources','obs_video_correction_ms','obs_delay_manual','obs_path_delay_ms','obs_path_signature'].includes(key));
+ !['obs_video_enabled','obs_video_sources','obs_video_correction_ms','obs_delay_manual','obs_path_delay_ms','obs_path_signature',
+  // Added after presets existed; older ones were made with its default.
+  'singing_block_ms'].includes(key));
 function snapshot(config){
  if(!config||typeof config!=='object'||Array.isArray(config))throw Error('保存する設定が正しくありません。');
  const clean=normalize({...config,engine_version:2});return Object.fromEntries(keys.map(key=>[key,clean[key]]));
