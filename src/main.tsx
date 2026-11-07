@@ -244,7 +244,7 @@ function App(){
        <div className="gpu-name" title={state==='running'||state==='stopping'?'変換に実際に使っているCPUまたはGPUです。':'現在の設定で使用する予定のCPUまたはGPUです。実際の使用先は変換開始後に確定します。'}><span>変換の実行先</span><strong>{deviceName}</strong></div>
       </div>
       {state==='running'&&metrics.clip>0&&<p className="monitor-warning" role="status">出力が上限を超えています。出力ゲインを下げてください。</p>}
-      {state==='running'&&(metrics.late_blocks>0||metrics.dropped>0||metrics.device_errors>0)&&<p className="monitor-warning" role="status">音声の処理・入出力が追いつかなかった区間があります。他のGPU処理や音声デバイスの設定を確認してください。</p>}
+      {state==='running'&&(metrics.late_blocks>0||metrics.dropped>0||metrics.device_errors>0||metrics.skipped_blocks>0)&&<p className="monitor-warning" role="status">音声の処理・入出力が追いつかなかった区間があります。他のGPU処理や音声デバイスの設定を確認してください。</p>}
      </section>
     <section className="card"><div className="section-title"><h3>声の調整</h3></div>
      <div className="voice-sliders">

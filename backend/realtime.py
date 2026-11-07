@@ -58,6 +58,22 @@ SINGING_DEVICE_LATENCY = .1
 LATE_CALLBACK_SECONDS = .03
 
 
+def catch_up_backlog(incoming, seq, audio, block, delay, cursor, estimate):
+    """Skip queued blocks that cannot reach their output slot.
+
+    Converting them anyway keeps every later block late too, which trims a little from
+    each one and sounds choppy. Skipping gives one clean gap and then on-time audio.
+    """
+    skipped = 0
+    while seq*block+delay-cursor() < estimate:
+        try:
+            seq, audio = incoming.get_nowait()
+        except queue.Empty:
+            break
+        skipped += 1
+    return seq, audio, skipped
+
+
 def open_audio_stream(open_stream, singing):
     """Return the stream and the latency that timing is computed from.
 
@@ -281,7 +297,7 @@ class Realtime:
             incoming = queue.Queue(maxsize=4)
             scheduled = ScheduledAudio(capacity=192000)
             effects_processor = VocalEffects()
-            counters = {'dropped': 0, 'device_errors': 0}
+            counters = {'dropped': 0, 'device_errors': 0, 'skipped_blocks': 0}
             staging = np.zeros(block, np.float32)
             cursor = sequence = 0
             # Muting has two gates: the output gate cuts the voice at once, even with a long
@@ -370,6 +386,7 @@ class Realtime:
                 **({'manual_timing':manual_timing} if manual_timing else {}),
                 'input': input_id, 'output': output_id})
             last_sequence = -1
+            convert_estimate = 0
             last_notice = 0
             clock_report = (0, 0)
             diagnostics = AudioDiagnostics(lambda line: print(line, file=sys.stderr, flush=True))
@@ -381,7 +398,7 @@ class Realtime:
                 largest_gap, callback_stats['largest_gap'] = callback_stats['largest_gap'], 0.
                 values = dict(callback_late=callback_stats['late'], largest_gap_ms=largest_gap*1000,
                     voice_late_blocks=scheduled.late_blocks, voice_missing_ms=scheduled.missing_after_start/48,
-                    dropped=counters['dropped'], device_errors=counters['device_errors'])
+                    dropped=counters['dropped'], device_errors=counters['device_errors'], skipped_blocks=counters['skipped_blocks'])
                 if mixer:
                     values.update(music_gaps=mixer.music.gaps, music_missing_samples=mixer.missing, limited_samples=mixer.limited)
                 diagnostics.report(values, music_db=mixer.level.recent_db if mixer else None)
@@ -399,6 +416,9 @@ class Realtime:
                     if not stream.active:
                         raise RuntimeError('音声デバイスが停止しました。接続を確認してください。')
                     continue
+                queue_depth = incoming.qsize()
+                seq, audio, skipped = catch_up_backlog(incoming, seq, audio, block, delay, lambda: scheduled.cursor, convert_estimate)
+                counters['skipped_blocks'] += skipped
                 if seq != last_sequence+1:
                     pipeline.reset()
                     effects_processor.reset()
@@ -413,10 +433,14 @@ class Realtime:
                 if gate != 1. or conversion_gate != 1.:
                     result = apply_gain(result, conversion_gate, gate)
                     conversion_gate = gate
+                effects_start = time.perf_counter()
                 result = effects_processor.process(result,effects)
+                effects_ms = (time.perf_counter()-effects_start)*1000
                 pipeline.stats['clip'] = int(bool(pipeline.stats.get('clip',0)) or effects_processor.peak > 1.)
                 pipeline.stats['ms'] = (time.perf_counter()-processing_start)*1000
-                diagnostics.observe(pipeline.stats['ms'], pipeline.stats.get('rms', 0.), effects_processor.peak)
+                convert_estimate = round(pipeline.stats['ms']*48)
+                diagnostics.observe(pipeline.stats['ms'], pipeline.stats.get('rms', 0.), effects_processor.peak,
+                    effects_ms=effects_ms, queue_depth=queue_depth, budget_ms=budget_ms)
                 scheduled.put(seq*block+delay, result)
                 now = time.monotonic()
                 if now-last_notice > .2:
