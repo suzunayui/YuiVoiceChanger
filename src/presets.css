@@ -64,6 +64,12 @@ footer .footer-actions>.mute-button:focus-visible{outline:2px solid #792929;outl
 .hotkey-setup label{display:flex;align-items:center;gap:8px}
 .diagnostic-log{margin-top:18px;padding-top:18px;border-top:1px solid #e5ded8}
 .diagnostic-log .guide-actions{margin-top:10px}
+.system-status+.diagnostic-log{margin-top:0;border-top:0;padding-top:0}
+.system-values{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 16px;margin:10px 0}
+.system-values dt{font-size:12px;color:#756a61}
+.system-values dd{margin:2px 0 0;font-weight:600}
+.system-verdicts{margin:10px 0 0;padding-left:18px;color:#a23333;line-height:1.6}
+.system-verdicts small{margin-left:4px;font-size:12px}
 .mix-music-level{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px}
 .mix-music-level span{flex-shrink:0}
 .mix-music-level strong{flex-shrink:0;min-width:48px;text-align:right;font-weight:600}

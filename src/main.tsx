@@ -9,6 +9,7 @@ import Slider from './Slider';
 import PresetCard from './PresetCard';
 import SingingSettings,{effectDefaults,type EffectConfig} from './SingingSettings';
 import DiagnosticLog from './DiagnosticLog';
+import SystemStatus from './SystemStatus';
 import {mixDefaults,type MixConfig} from './StreamMix';
 import {obsDefaults,type ObsConfig} from './ObsIntegration';
 import {idleCalibration,type CalibrationStatus} from './LatencyCalibration';
@@ -28,7 +29,7 @@ const samePath=(a:string,b:string)=>a.replace(/\\/g,'/').toLowerCase()===b.repla
 
 function App(){
  const [config,setConfig]=useState<Config>(empty),[tab,setTab]=useState('voice'),[state,setState]=useState('stopped');
- const [devices,setDevices]=useState<Device[]>([]),[metrics,setMetrics]=useState<any>({});
+ const [devices,setDevices]=useState<Device[]>([]),[metrics,setMetrics]=useState<any>({}),[systemStatus,setSystemStatus]=useState<any>(null);
  const [calibration,setCalibration]=useState<CalibrationStatus>(idleCalibration);
  const [presetSwitching,setPresetSwitching]=useState(false);
  const [modelHistory,setModelHistory]=useState<RecentModel[]>([]);
@@ -81,11 +82,12 @@ function App(){
    if(event.type==='state'){
     if(event.config)setConfig(event.config);
     setState(event.state);
-    if(event.state==='running'){setActualDevice(event.device);setMetrics((p:any)=>({...p,budget_ms:event.budget_ms,schedule_ms:event.schedule_ms}));setMessage('');}
+    if(event.state==='running'){setSystemStatus(null);setActualDevice(event.device);setMetrics((p:any)=>({...p,budget_ms:event.budget_ms,schedule_ms:event.schedule_ms}));setMessage('');}
     else{if(event.state==='stopped')setActualDevice('');setMessage(event.state==='loading'?'変換エンジンを準備しています…':'');}
    }
    if(event.type==='loading')setMessage(event.message);
    if(event.type==='metrics')setMetrics(event);
+   if(event.type==='system-status')setSystemStatus(event);
    if(event.type==='error')setError(event.message);
    if(event.type==='notice')setMessage(event.message);
    if(event.type==='mute')setMuted(event.muted);
@@ -276,6 +278,7 @@ function App(){
      </div>
      {computeWarning&&<p role="status" className="hint danger">{computeWarning}</p>}
     </fieldset>
+    <SystemStatus status={systemStatus} running={state==='running'}/>
     <DiagnosticLog/>
     <section className="runtime-setup hotkey-setup" aria-label="ホットキー">
      <div className="section-title"><h3>ホットキー</h3></div>
