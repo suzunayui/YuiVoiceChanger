@@ -562,6 +562,38 @@ fn saves_the_diagnostic_log_and_shows_it() {
 }
 
 #[test]
+fn reports_pc_load_while_converting_and_says_when_conversion_fell_behind() {
+    let world = world();
+    world.app.sample_system_now();
+    assert!(world.events("system-status").is_empty(), "nothing is measured before converting");
+
+    world.behave("late-blocks");
+    world.start_running(json!({}));
+    world.wait_event("metrics");
+    world.app.sample_system_now();
+    let status = world.wait_event("system-status");
+    assert_eq!(status["behind"], true, "{status}");
+    assert!(status["sample"]["cpu"]["total"].is_number(), "{status}");
+    assert!(status["sample"]["ramTotalGb"].as_f64().unwrap() > 0.0, "{status}");
+    assert!(status["sample"].get("gpu").is_some(), "{status}");
+    assert!(!status["verdicts"][0]["message"].as_str().unwrap().is_empty(), "{status}");
+    assert!(status["summary"].as_array().is_some(), "{status}");
+
+    let log = world.home.join("logs").join("independent-engine.log");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !fs::read_to_string(&log).unwrap_or_default().contains(" System: ") && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(fs::read_to_string(&log).unwrap().contains("behind=true"));
+
+    world.app.invoke("stop", Value::Null).unwrap();
+    world.wait_state("stopped");
+    let count = world.events("system-status").len();
+    world.app.sample_system_now();
+    assert_eq!(world.events("system-status").len(), count, "it stops with the conversion");
+}
+
+#[test]
 fn every_action_the_screen_uses_is_known() {
     let world = world();
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src");

@@ -130,6 +130,9 @@ fn main() {
                     state["manual_timing"] = timing.clone();
                 }
                 emit(state);
+                if behavior == "late-blocks" {
+                    emit(json!({"type": "metrics", "late_blocks": 2}));
+                }
             }
             "stop" => {
                 if running {

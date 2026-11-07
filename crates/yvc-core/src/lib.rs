@@ -12,6 +12,7 @@ pub mod obs_plugin;
 pub mod official;
 pub mod presets;
 pub mod runtime;
+pub mod system_monitor;
 pub mod tools;
 pub mod training;
 pub mod util;

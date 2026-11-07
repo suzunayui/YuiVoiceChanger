@@ -6,6 +6,7 @@ use crate::model_history::ModelHistory;
 use crate::obs::ObsLink;
 use crate::presets::Presets;
 use crate::runtime::no_window;
+use crate::system_monitor::SystemMonitor;
 use crate::training::Training;
 use crate::util::{is_file, local_now, same, same_file, write_atomic};
 use crate::{diagnostic_log, icons, obs_plugin, official, runtime, tools};
@@ -119,6 +120,7 @@ pub struct App {
     obs: ObsLink,
     calibration: Calibration,
     training: Training,
+    system_monitor: Arc<SystemMonitor>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -213,6 +215,14 @@ impl App {
                 }),
             );
             Self {
+                system_monitor: SystemMonitor::new(notify.clone(), {
+                    let log_file = paths.home.join("logs").join("independent-engine.log");
+                    Arc::new(move |line: &str| {
+                        if let Ok(mut file) = OpenOptions::new().append(true).create(true).open(&log_file) {
+                            let _ = writeln!(file, "{line}");
+                        }
+                    })
+                }),
                 obs: ObsLink::new(&paths.home, &paths.obs_pipe, notify.clone()),
                 training: Training::new(&paths.home, &paths.engine_root, notify),
                 calibration,
@@ -266,6 +276,16 @@ impl App {
         if kind == "devices" {
             self.st().audio_devices = event["devices"].as_array().cloned();
         }
+        if kind == "metrics" {
+            self.system_monitor.observe(&event);
+        }
+        if kind == "state" {
+            match event["state"].as_str() {
+                Some("running") => self.system_monitor.start(),
+                Some("stopped") => self.system_monitor.stop(),
+                _ => {}
+            }
+        }
         if kind == "state" && event["state"] == "running" && event.get("manual_timing").is_some_and(|timing| !timing.is_null()) {
             let adopted = adopt_manual_timing(&self.st().config, &event["manual_timing"]);
             if let Some(next) = adopted {
@@ -284,6 +304,12 @@ impl App {
         }
         self.host.emit(&event);
         self.listeners.lock().unwrap().retain(|listener| listener.send(event.clone()).is_ok());
+    }
+
+    /// Measures right away instead of at the next interval. For tests.
+    #[doc(hidden)]
+    pub fn sample_system_now(&self) {
+        self.system_monitor.sample();
     }
 
     fn publish_presets(&self) {
@@ -1311,6 +1337,7 @@ impl App {
             let _ = self.write_config();
         }
         self.stop_worker();
+        self.system_monitor.stop();
         self.training.shutdown();
         self.calibration.shutdown();
         self.obs.shutdown();
