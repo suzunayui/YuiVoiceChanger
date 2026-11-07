@@ -35,6 +35,8 @@ struct Inner {
     state: Mutex<(Value, bool)>,
     finished: Condvar,
     cancelled: AtomicBool,
+    // Measuring has ended, which lets the result be saved, but the result isn't in place yet.
+    saving_result: AtomicBool,
     stdin: Mutex<Option<ChildStdin>>,
 }
 
@@ -45,7 +47,7 @@ pub struct Calibration {
 impl Inner {
     fn status(&self) -> Value {
         let state = self.state.lock().unwrap();
-        merged(&state.0, &json!({"busy": state.1}))
+        merged(&state.0, &json!({"busy": state.1 || self.saving_result.load(Ordering::SeqCst)}))
     }
 
     fn update(&self, next: &Value) {
@@ -62,7 +64,11 @@ impl Inner {
             event = json!({"phase": "cancelled", "message": "測定を中止しました。"});
         }
         *self.stdin.lock().unwrap() = None;
-        self.state.lock().unwrap().1 = false;
+        {
+            let mut state = self.state.lock().unwrap();
+            self.saving_result.store(true, Ordering::SeqCst);
+            state.1 = false;
+        }
         let mut next_config = None;
         if event["phase"] == "completed" {
             let result = match event["recommended_ms"].as_i64().filter(|ms| (200..=2000).contains(ms) && event["recommended_ms"].is_i64()) {
@@ -75,8 +81,10 @@ impl Inner {
             }
         }
         let notification = {
+            // The status stays busy until now, so nobody reads an old phase as the outcome.
             let mut state = self.state.lock().unwrap();
             state.0 = event;
+            self.saving_result.store(false, Ordering::SeqCst);
             merged(&state.0, &json!({"busy": false}))
         };
         let mut notification = merged(&json!({"type": "latency-calibration"}), &notification);
@@ -200,6 +208,7 @@ impl Calibration {
                 state: Mutex::new((json!({"phase": "idle", "message": "", "progress": 0}), false)),
                 finished: Condvar::new(),
                 cancelled: AtomicBool::new(false),
+                saving_result: AtomicBool::new(false),
                 stdin: Mutex::new(None),
             }),
         }
@@ -214,7 +223,7 @@ impl Calibration {
     }
 
     pub fn start(&self, config: &Config) -> Result<Value, String> {
-        if self.busy() {
+        if self.busy() || self.inner.saving_result.load(Ordering::SeqCst) {
             return Err("自動設定は実行中です。".to_string());
         }
         let text = |key: &str| config.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
