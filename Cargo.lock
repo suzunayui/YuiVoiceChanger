@@ -5105,7 +5105,7 @@ dependencies = [
 
 [[package]]
 name = "yui-voice-changer"
-version = "2026.1107.7"
+version = "2026.1107.8"
 dependencies = [
  "serde_json",
  "tauri",
