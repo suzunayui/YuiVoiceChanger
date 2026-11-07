@@ -12,6 +12,9 @@
     "test:config": "node tests/config.cjs && node tests/config-file.cjs && node tests/hotkeys.cjs && node tests/manual-delay.cjs && node tests/engine-probe.cjs && node tests/obs-reference.cjs && node tests/engine-paths.cjs && node tests/setup.cjs && node tests/official-model.cjs && node tests/model-history.cjs && node tests/obs-link.cjs && node tests/obs-video-delay.cjs && node tests/obs-video-sources.cjs && node tests/latency-calibration.cjs && node tests/presets.cjs && node tests/audio-stability.cjs && node tests/obs-sync.cjs && node tests/obs-sync-verification.cjs && node tests/obs-broadcast.cjs",
     "test:mix": "node tests/obs-mix.cjs && node tests/obs-mix-video.cjs",
     "dist": "npm run build && electron-builder --win nsis",
+    "build:tauri-assets": "npm run build && node scripts/prepare-tauri-resources.cjs",
+    "tauri:dist": "tauri build",
+    "test:rust": "cargo test -p yvc-core",
     "dist:mac:preview": "npm run dist:mac",
     "dist:mac": "npm run build && electron-builder --mac dmg --arm64 --publish never"
   },
@@ -23,6 +26,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "electron": "^45.2.3",

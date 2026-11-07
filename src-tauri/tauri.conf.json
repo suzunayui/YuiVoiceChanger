@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "YuiVoiceChanger",
+  "version": "../package.json",
+  "identifier": "com.suzunayui.yuivoicechanger",
+  "build": {
+    "frontendDist": "../renderer-dist",
+    "beforeBuildCommand": "npm run build:tauri-assets"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Yui Voice Changer",
+        "width": 1280,
+        "height": 600,
+        "minWidth": 1000,
+        "minHeight": 560,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["../assets/icon.ico"],
+    "resources": {
+      "resources/": "engine/"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "installMode": "currentUser" }
+    }
+  }
+}

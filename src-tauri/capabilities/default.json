@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The window only needs Tauri's basics; everything else goes through yvc_invoke.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

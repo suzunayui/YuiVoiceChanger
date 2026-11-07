@@ -1,0 +1,19 @@
+[package]
+name = "yui-voice-changer"
+version = "2026.1107.1"
+description = "Yui Voice Changer — independent realtime voice conversion"
+authors = ["suzunayui"]
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+yvc-core = { path = "../crates/yvc-core" }
+serde_json = { version = "1", features = ["preserve_order"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"

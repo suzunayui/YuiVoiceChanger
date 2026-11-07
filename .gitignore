@@ -22,4 +22,7 @@ __pycache__/
 node_modules/
 /renderer-dist/
 /release/
+/target/
+/src-tauri/gen/
+/src-tauri/resources/
 *.tsbuildinfo
