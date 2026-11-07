@@ -1,3 +1,4 @@
+import io
 import json
 import subprocess
 import sys
@@ -262,7 +263,8 @@ class LiveControlsTests(unittest.TestCase):
             def close(self): pass
         available = [dict(id=1, name='mic', host='Windows WASAPI', inputs=1, outputs=0), dict(id=2, name='out', host='Windows WASAPI', inputs=0, outputs=2)]
         engine = Realtime(events.append)
-        with patch('backend.direct_gpu.BeatricePipeline', Pipeline), patch('backend.realtime.ScheduledAudio', Schedule), patch('backend.realtime.devices', return_value=available), patch('backend.realtime.audio_settings', return_value=(None, None)), patch('sounddevice.query_devices', return_value={'max_output_channels': 2}), patch('sounddevice.Stream', Stream):
+        diagnostics_log = io.StringIO()
+        with patch('sys.stderr', diagnostics_log), patch('backend.direct_gpu.BeatricePipeline', Pipeline),patch('backend.realtime.ScheduledAudio', Schedule), patch('backend.realtime.devices', return_value=available), patch('backend.realtime.audio_settings', return_value=(None, None)), patch('sounddevice.query_devices', return_value={'max_output_channels': 2}), patch('sounddevice.Stream', Stream):
             try:
                 config = {'input': 1, 'output': 2, 'singing_enabled': singing, 'singing_latency_ms': 200 if manual else 400,
                           'obs_correction_ms': 300 if manual else 0, 'obs_delay_manual': manual}
@@ -288,6 +290,9 @@ class LiveControlsTests(unittest.TestCase):
                 engine.stop()
                 engine.thread.join(3)
         self.assertFalse(engine.thread.is_alive())
+        logged = diagnostics_log.getvalue()
+        self.assertRegex(logged, rf'\d{{4}}-\d\d-\d\d \d\d:\d\d:\d\d Audio start: .*singing={singing}')
+        self.assertRegex(logged, r'Audio report: callback_late=\d+ largest_gap_ms=\d+ voice_late_blocks=\d+')
         self.assertEqual(len(pipelines), 1)
         self.assertEqual([stream.requested_latency for stream in streams], ['low', SINGING_DEVICE_LATENCY] if singing else ['low'])
         self.assertFalse(hasattr(streams[0], 'thread') and singing)

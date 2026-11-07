@@ -8,6 +8,7 @@ import Help from './Help';
 import Slider from './Slider';
 import PresetCard from './PresetCard';
 import SingingSettings,{effectDefaults,type EffectConfig} from './SingingSettings';
+import DiagnosticLog from './DiagnosticLog';
 import {mixDefaults,type MixConfig} from './StreamMix';
 import {obsDefaults,type ObsConfig} from './ObsIntegration';
 import {idleCalibration,type CalibrationStatus} from './LatencyCalibration';
@@ -275,6 +276,7 @@ function App(){
      </div>
      {computeWarning&&<p role="status" className="hint danger">{computeWarning}</p>}
     </fieldset>
+    <DiagnosticLog/>
     <section className="runtime-setup hotkey-setup" aria-label="ホットキー">
      <div className="section-title"><h3>ホットキー</h3></div>
      <label title="オンの間、下のキーの組み合わせはこのアプリが受け取ります。ゲームや他のアプリで同じキーを使っている場合はオフにしてください。"><input type="checkbox" checked={config.hotkeys_enabled} onChange={e=>{const hotkeys_enabled=e.target.checked;setConfig(prev=>({...prev,hotkeys_enabled}));}}/> 他のアプリを使っている間もキーで操作する</label>

@@ -125,6 +125,11 @@ class MusicLevel:
         if self.blocks==self.BLOCKS_PER_SECOND:
             self.seconds.append(self.current);self.current=0.;self.blocks=0
 
+    @property
+    def recent_db(self):
+        peak=max(*self.seconds,self.current) if self.seconds else self.current
+        return 20*math.log10(peak) if peak>10**(self.FLOOR_DB/20) else self.FLOOR_DB
+
     def take_db(self):
         peak,self.peak=self.peak,0.
         return 20*math.log10(peak) if peak>10**(self.FLOOR_DB/20) else self.FLOOR_DB
