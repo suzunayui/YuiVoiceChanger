@@ -1,6 +1,6 @@
 [package]
 name = "yui-voice-changer"
-version = "2026.1107.6"
+version = "2026.1107.7"
 description = "Yui Voice Changer — independent realtime voice conversion"
 authors = ["suzunayui"]
 edition = "2021"
