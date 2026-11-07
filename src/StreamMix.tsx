@@ -1,6 +1,7 @@
 import {useEffect,useState,type ReactNode} from 'react';
 import type {Config} from './main';
 import Slider from './Slider';
+import errorText from './errorText';
 export const mixDefaults={mix_enabled:false,mix_latency_ms:500,mix_device_id:'default',mix_device_name:'',mix_music_gain:-6,mix_voice_uuid:'',mix_voice_name:''};
 export type MixConfig=typeof mixDefaults;
 type Device={id:string;name:string;default:boolean};
@@ -11,7 +12,7 @@ export default function StreamMix({config,active,disabled,running,onUpdate,child
  useEffect(()=>{
   if(!config.mix_enabled||!config.python)return;
   let cancelled=false;const unsubscribe=window.yvc.subscribe(e=>{if(e.type==='mix-devices'&&!cancelled)setDevices(e.devices);});
-  window.yvc.invoke('mix-devices').catch(e=>{if(!cancelled)setError(String(e));});
+  window.yvc.invoke('mix-devices').catch(e=>{if(!cancelled)setError(errorText(e));});
   return()=>{cancelled=true;unsubscribe();};
  },[config.mix_enabled,config.python]);
  const currentDefault=devices.find(x=>x.default);
@@ -20,7 +21,7 @@ export default function StreamMix({config,active,disabled,running,onUpdate,child
  const toggle=async()=>{
   setSwitchError('');setSwitching(true);
   try{onUpdate(await window.yvc.invoke('set-singing-mode',!enabled));}
-  catch(e){setSwitchError((e instanceof Error?e.message:String(e)).replace(/^Error invoking remote method '[^']+': Error: /,''));}
+  catch(e){setSwitchError(errorText(e));}
   finally{setSwitching(false);}
  };
  return <section className="card stream-mix" aria-label="歌枠モード">

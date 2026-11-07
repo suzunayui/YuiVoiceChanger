@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,shell,systemPreferences} = require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,systemPreferences,globalShortcut} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -6,6 +6,8 @@ const readline = require('node:readline');
 const os = require('node:os');
 const {EventEmitter}=require('node:events');
 const {normalize,liveControls} = require('./config.cjs');
+const {loadConfig} = require('./config-file.cjs');
+const {Hotkeys} = require('./hotkeys.cjs');
 const {ModelHistory} = require('./model-history.cjs');
 const {installObsPlugin} = require('./obs-plugin-install.cjs');
 const ROOT = path.resolve(__dirname,'..');
@@ -23,7 +25,8 @@ const workerStops=new WeakMap();
 let officialAbort=null,officialTask=null;
 let iconDirectory,audioDevices;
 const training=new (require('./training.cjs').TrainingManager)(HOME,ENGINE_ROOT,send);
-function read(file) {try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return {};}}
+const SAVE_DELAY_MS=300;
+let persistTimer=null,setupAbort=null,setupTask=null,hotkeys=null,muted=false;
 function pickerDirectory(value){
  if(typeof value!=='string'||!value.trim())return undefined;
  let directory=path.resolve(value);
@@ -35,12 +38,13 @@ function pickerDirectory(value){
  }
 }
 const source=!process.env.YVC_DESKTOP_HOME&&!fs.existsSync(CONFIG)?LEGACY_CONFIG:CONFIG;
-const saved=read(source);
+const loadedConfig=loadConfig(source,HOME,normalize);
+const saved=loadedConfig.saved;
+let config=loadedConfig.config;
+const configError=loadedConfig.error;
 const modelHistory=new ModelHistory(HOME);
 const presets=new (require('./presets.cjs').Presets)(HOME);
 const obs=new (require('./obs-link.cjs').ObsLink)({home:HOME,notify:send,pipe:process.platform==='win32',disabled:process.platform!=='win32'});
-let config,configError;
-try {config=normalize(saved);} catch(e) {config=normalize({});configError=e.message;}
 const calibration=new (require('./latency-calibration.cjs').LatencyCalibration)({engineRoot:ENGINE_ROOT,notify:send,beforeStart:async()=>{if(connecting)await connecting;await stopWorker();},onComplete:result=>{const next=save({...config,singing_enabled:true,singing_latency_ms:result.recommended_ms,obs_delay_manual:false});result.total_delay_ms=require('./obs-config.cjs').offsetFor(next);return next;}});
 const obsSync=new (require('./obs-sync.cjs').ObsSync)({home:HOME,engineRoot:ENGINE_ROOT,obs,notify:send});
 if(saved.engine_version!==2&&Object.keys(saved).length&&fs.existsSync(source)){
@@ -59,7 +63,42 @@ function send(event){
  engineEvents.emit('event',event);
 }
 function publishPresets(){try{send({type:'presets',items:presets.list(config)});}catch{}}
-function save(next,{preset=false,engineTiming=false}={}){
+function writeConfig(){
+ clearTimeout(persistTimer);persistTimer=null;
+ fs.mkdirSync(HOME,{recursive:true});
+ const tmp=CONFIG+'.tmp';fs.writeFileSync(tmp,JSON.stringify(config,null,2));fs.renameSync(tmp,CONFIG);
+}
+// Slider drags change the config many times a second; the audio follows at once and the disk catches up.
+function writeConfigSoon(){
+ if(persistTimer)return;
+ persistTimer=setTimeout(()=>{try{writeConfig();}catch(error){send({type:'error',message:'設定の保存に失敗しました。'+error.message});}},SAVE_DELAY_MS);
+}
+const engineStartConfig=()=>muted?{...config,muted:true}:config;
+function setMuted(value){
+ if(typeof value!=='boolean')throw Error('ミュートの指定が正しくありません。');
+ if(engineState!=='running'&&!presetSwitching)throw Error('声変換の実行中だけミュートできます。');
+ if(engineState==='running')request('set-mute',{muted:value});
+ muted=value;send({type:'mute',muted});
+ return muted;
+}
+function syncHotkeys(){if(hotkeys)send({type:'hotkeys',...hotkeys.sync(config.hotkeys_enabled)});}
+function hotkeyMute(){
+ try{
+  if(obsSync.busy)throw Error('OBSの同期測定が終わるまでお待ちください。');
+  setMuted(!muted);
+ }catch(error){send({type:'notice',message:error.message});}
+}
+async function hotkeyPreset(index){
+ const item=presets.items[index];
+ if(!item){send({type:'notice',message:`${index+1}番目のプリセットはまだありません。`});return;}
+ try{
+  if(obsSync.busy)throw Error('OBSの同期測定が終わるまでお待ちください。');
+  await applyPreset(item.id);
+  send({type:'preset-config',config});
+  send({type:'notice',message:`「${item.name}」を適用しました。`});
+ }catch(error){send({type:'error',message:error.message});}
+}
+function save(next,{preset=false,engineTiming=false,deferred=false}={}){
  const clean=normalize(next);
  if(!engineTiming&&calibration.busy&&Object.keys(clean).some(key=>clean[key]!==config[key]))throw Error('自動設定の測定が終わるまでお待ちください。');
  if(!engineTiming&&obsSync.busy&&Object.keys(clean).some(key=>clean[key]!==config[key]))throw Error('OBSの同期測定が終わるまでお待ちください。');
@@ -71,10 +110,11 @@ function save(next,{preset=false,engineTiming=false}={}){
   request('update-controls',{controls,...(effects?{effects}:{})});
   if(clean.mix_music_gain!==config.mix_music_gain)request('update-mix',{gain:clean.mix_music_gain});
  }
+ const hotkeysChanged=clean.hotkeys_enabled!==config.hotkeys_enabled;
  config=clean;
  obs.configure({...config,obs_enabled:false},engineState==='running');
- fs.mkdirSync(HOME,{recursive:true});
- const tmp=CONFIG+'.tmp';fs.writeFileSync(tmp,JSON.stringify(config,null,2));fs.renameSync(tmp,CONFIG);
+ if(hotkeysChanged)syncHotkeys();
+ if(deferred)writeConfigSoon();else writeConfig();
  if(modelHistory.remember(config))send({type:'model-history',models:modelHistory.list()});
  publishPresets();
  return config;
@@ -96,7 +136,7 @@ async function startPresetEngine(signal,label='プリセットの切り替え'){
   const cancel=()=>finish(Error(`${label}を中止しました。`));
   const timer=setTimeout(()=>finish(Error(`${label}の読み込みが時間切れになりました。`)),120000);
   engineEvents.on('event',listener);signal.addEventListener('abort',cancel,{once:true});
-  try{request('start',{config});}catch(error){finish(error);}
+  try{request('start',{config:engineStartConfig()});}catch(error){finish(error);}
  });
 }
 async function stopPresetEngine(reuseWorker,signal){
@@ -173,6 +213,9 @@ async function boot(){
   workerPython=config.python;
   const child=spawn(config.python,['-I','-u',path.join(ENGINE_ROOT,'backend','worker.py')],{
    cwd:ENGINE_ROOT,windowsHide:true,env:{...process.env,PYTHONIOENCODING:'utf-8',OMP_NUM_THREADS:'2'},stdio:['pipe','pipe','pipe']});
+  log.on('error',()=>{});
+  // A write can race the process exiting. The exit handler reports it; an unhandled EPIPE would take the app down.
+  child.stdin.on('error',error=>{if(!log.writableEnded)log.write(`stdin: ${error.message}\n`);});
   worker=child;child.stderr.pipe(log);
   await new Promise((resolve,reject)=>{
    let ready=false;
@@ -210,9 +253,12 @@ else {
   window.webContents.session.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
   ipcMain.handle('yvc',async(event,action,payload)=>{
    if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame)throw Error('Unauthorized IPC');
-   if(obsSync.busy&&!['config','obs-sync-status','obs-sync-cancel','obs-status','presets','model-icon','read-help','open-help-link','training-status','latency-calibration-status','stop'].includes(action))throw Error('OBSの同期測定が終わるまでお待ちください。');
-   if(presetSwitching&&!['config','presets','model-icon','read-help','open-help-link','training-status','latency-calibration-status','obs-status','obs-sync-status','obs-sync-info','stop'].includes(action))throw Error('プリセットを切り替えています。完了までお待ちください。');
+   if(obsSync.busy&&!['config','obs-sync-status','obs-sync-cancel','obs-status','presets','model-icon','read-help','open-help-link','training-status','latency-calibration-status','hotkeys-status','stop'].includes(action))throw Error('OBSの同期測定が終わるまでお待ちください。');
+   if(presetSwitching&&!['config','presets','model-icon','read-help','open-help-link','training-status','latency-calibration-status','obs-status','obs-sync-status','obs-sync-info','hotkeys-status','set-mute','stop'].includes(action))throw Error('プリセットを切り替えています。完了までお待ちください。');
    if(action==='config')return config;
+   if(action==='hotkeys-status')return hotkeys.status();
+   if(action==='set-mute')return setMuted(payload);
+   if(action==='cancel-setup'){setupAbort?.abort();return;}
    if(action==='install-obs-plugin'){
     if(installingObsPlugin)throw Error('OBSプラグインを導入中です。');
     installingObsPlugin=true;
@@ -344,7 +390,7 @@ else {
     if(url.protocol!=='https:'||url.username||url.password)throw Error('Invalid help link');
     await shell.openExternal(url.href);return;
    }
-   if(action==='save')return save(payload);
+   if(action==='save')return save(payload,{deferred:true});
    if(action==='inspect-model')return training.inspect(config.python,payload);
    if(action==='gpu-info')return training.tool(config.python,'gpu');
    if(action==='compute-devices')return require('./compute-devices.cjs').computeDevices(config.python,training.tool.bind(training));
@@ -386,12 +432,13 @@ else {
    if(action==='cancel-official-model'){officialAbort?.abort();return;}
    if(action==='setup-runtime'){
     if(settingUp||training.busy||calibration.busy||engineState!=='stopped')throw Error('変換と学習を停止してからセットアップしてください。');
-    settingUp=true;
+    settingUp=true;setupAbort=new AbortController();
     try{
      await stopWorker();
-     const next=await require('./setup.cjs').setup(HOME,message=>send({type:'setup',message}));
+     setupTask=require('./setup.cjs').setup(HOME,message=>send({type:'setup',message}),{signal:setupAbort.signal});
+     const next=await setupTask;
      save({...config,...next});await boot();request('devices');return config;
-    }finally{settingUp=false;}
+    }finally{settingUp=false;setupAbort=null;setupTask=null;}
    }
    if(action==='open-resource'){
     const links={models:'https://github.com/fierce-cats/beatrice-trainer',python:'https://www.python.org/downloads/',cable:'https://vb-audio.com/Cable/',tsukuyomi_terms:require('./official-model.cjs').TERMS_URL};
@@ -427,6 +474,8 @@ else {
     if(settingUp||training.busy||calibration.busy)throw Error('セットアップ・学習・自動設定が終わるまでお待ちください。');
     if(engineState!=='stopped')throw Error('すでに起動中です。');
     save(payload);
+    // Every manual start begins audible; only a preset restart carries the mute across.
+    if(muted){muted=false;send({type:'mute',muted});}
     const token=++startToken;
     send({type:'state',state:'loading'});
     try{
@@ -434,7 +483,7 @@ else {
      if(token!==startToken||quitting)return;
      await boot();
      if(token!==startToken||quitting)return;
-     request('start',{config});return;
+     request('start',{config:engineStartConfig()});return;
     }catch(e){send({type:'state',state:'stopped'});throw e;}
    }
    if(action==='stop'){
@@ -445,6 +494,8 @@ else {
    }
    throw Error('Unknown action');
   });
+  hotkeys=new Hotkeys({shortcuts:globalShortcut,onMute:hotkeyMute,onPreset:hotkeyPreset});
+  hotkeys.sync(config.hotkeys_enabled);
   window.loadFile(path.join(ROOT,'renderer-dist','index.html'));
   window.webContents.once('did-finish-load',()=>{
    if(configError)send({type:'error',message:configError});
@@ -452,10 +503,13 @@ else {
    void obs.flush().catch(()=>{});
   });
  });
+ app.on('will-quit',()=>globalShortcut.unregisterAll());
  app.on('before-quit',event=>{
   officialAbort?.abort();
   presetAbort?.abort();
-  if(!quitting){event.preventDefault();quitting=true;Promise.allSettled([stopWorker(),training.shutdown(),officialTask,calibration.shutdown(),obsSync.shutdown()]).then(()=>obs.shutdown()).catch(()=>{}).finally(()=>app.exit(0));}
+  setupAbort?.abort();
+  if(persistTimer){try{writeConfig();}catch{}}
+  if(!quitting){event.preventDefault();quitting=true;Promise.allSettled([stopWorker(),training.shutdown(),officialTask,setupTask,calibration.shutdown(),obsSync.shutdown()]).then(()=>obs.shutdown()).catch(()=>{}).finally(()=>app.exit(0));}
  });
  app.on('window-all-closed',()=>app.quit());
 }

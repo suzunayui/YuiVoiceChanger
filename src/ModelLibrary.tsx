@@ -1,4 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
+import errorText from './errorText';
 export type LibraryModel={id:string;path:string;voice:number;label:string;alias:string;icon:string;available:boolean};
 type OfficialModel={installing:boolean;message:string;error:string;supported:boolean;onInstall:()=>Promise<string|null>;onCancel:()=>Promise<void>;onTerms:()=>Promise<void>};
 type Props={items:LibraryModel[];icons:Record<string,string>;currentId?:string;selectedId?:string;onSelect:(id:string)=>void;disabled:boolean;onClose:()=>void;onTrain:()=>void;onAdd:()=>Promise<string|null>;onUse:(id:string)=>Promise<void>;onSave:(id:string,alias:string,icon:string)=>Promise<void>;onRemove:(id:string)=>Promise<void>;onPickIcon:(id:string)=>Promise<{icon:string;data:string}|null>;official:OfficialModel};
@@ -11,7 +12,7 @@ export default function ModelLibrary(props:Props){
  const item=props.items.find(model=>model.id===editing),locked=busy||props.disabled;
  useEffect(()=>{dialog.current?.showModal();return()=>dialog.current?.close();},[]);
  useEffect(()=>{if(item){setAlias(item.alias);setIcon(item.icon);setPreview('');}},[editing,item?.id]);
- const run=async(action:()=>Promise<void>)=>{setBusy(true);setError('');try{await action();}catch(e){setError(String(e));}finally{setBusy(false);}};
+ const run=async(action:()=>Promise<void>)=>{setBusy(true);setError('');try{await action();}catch(e){setError(errorText(e));}finally{setBusy(false);}};
  const picture=(id:string,label:string)=>props.icons[id]?<img src={props.icons[id]} alt=""/>:<span aria-hidden="true">{Array.from(label)[0]||'＋'}</span>;
  const filtered=props.items.filter(model=>(model.label+' '+model.path).toLowerCase().includes(query.toLowerCase()));
  const selected=props.items.find(model=>model.id===props.selectedId);
@@ -33,8 +34,8 @@ export default function ModelLibrary(props:Props){
     <p className="hint">つくよみちゃん © Rei Yumesaki ／ 公式モデル：Project Beatrice</p>
     <div className="guide-actions">
      <button title="つくよみちゃん（コーパス）を追加します。使用中のモデルは、切り替えボタンを押すまで変わりません。" className="primary" disabled={locked||!props.official.supported} onClick={()=>run(async()=>{const id=await props.official.onInstall();if(id){props.onSelect(id);setQuery('');}})}>{props.official.installing?'つくよみちゃんを導入中…':'規約に同意してつくよみちゃんを導入'}</button>
-     <button title="ブラウザーで公式モデルの利用規約を開きます。" onClick={()=>props.official.onTerms().catch(e=>setError(String(e)))}>利用規約を読む ↗</button>
-     {props.official.installing&&<button title="今回のダウンロード・導入を中止します。" onClick={()=>props.official.onCancel().catch(e=>setError(String(e)))}>導入を中止</button>}
+     <button title="ブラウザーで公式モデルの利用規約を開きます。" onClick={()=>props.official.onTerms().catch(e=>setError(errorText(e)))}>利用規約を読む ↗</button>
+     {props.official.installing&&<button title="今回のダウンロード・導入を中止します。" onClick={()=>props.official.onCancel().catch(e=>setError(errorText(e)))}>導入を中止</button>}
     </div>
     {props.official.message&&<p role="status">{props.official.message}</p>}
     {props.official.error&&<p className="error" role="alert">{props.official.error}</p>}
@@ -54,7 +55,7 @@ function RemoveModelConfirmation(props:{model:LibraryModel;current:boolean;onClo
  const dialog=useRef<HTMLDialogElement>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
  useEffect(()=>{dialog.current?.showModal();return()=>dialog.current?.close();},[]);
- const remove=async()=>{setBusy(true);setError('');try{await props.onRemove();props.onClose();}catch(e){setError(String(e));}finally{setBusy(false);}};
+ const remove=async()=>{setBusy(true);setError('');try{await props.onRemove();props.onClose();}catch(e){setError(errorText(e));}finally{setBusy(false);}};
  return <dialog ref={dialog} className="model-library library-remove-confirmation" aria-labelledby="remove-model-title" aria-describedby="remove-model-description" onCancel={e=>{e.preventDefault();if(!busy)props.onClose();}}>
   <h2 id="remove-model-title">一覧から削除しますか？</h2>
   <p className="library-remove-name">{props.model.label}</p>

@@ -1,5 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import type {Config} from './main';
+import errorText from './errorText';
 
 export type CalibrationStatus={phase:string;busy:boolean;message:string;progress?:number;rms?:number;seconds_left?:number;recommended_ms?:number;total_delay_ms?:number};
 export const idleCalibration:CalibrationStatus={phase:'idle',busy:false,message:''};
@@ -12,13 +13,13 @@ export default function LatencyCalibration({config,status,disabled,onStatus,butt
  const start=async()=>{
   setOpen(true);setPending(true);
   try{onStatus(await window.yvc.invoke('latency-calibration-start',config));}
-  catch(error){onStatus({phase:'failed',busy:false,message:String(error)});}
+  catch(error){onStatus({phase:'failed',busy:false,message:errorText(error)});}
   finally{setPending(false);}
  };
  const cancel=async()=>{
   setCancelling(true);
   try{onStatus(await window.yvc.invoke('latency-calibration-cancel'));}
-  catch(error){onStatus({phase:'failed',busy:false,message:String(error)});setCancelling(false);}
+  catch(error){onStatus({phase:'failed',busy:false,message:errorText(error)});setCancelling(false);}
  };
  const working=status.busy||pending;
  const current=pending?{phase:'preparing',message:'自動設定を準備しています…',progress:0}:status;

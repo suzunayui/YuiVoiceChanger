@@ -11,11 +11,15 @@ const UV_URL='https://github.com/astral-sh/uv/releases/download/0.13.6/uv-x86_64
 const UV_SHA='a2a8820d5eea32f08ef467ef3b7f66883a9b076d5737a2fc2fbb5f458d1bb50f';
 const MAC_UV_URL='https://github.com/astral-sh/uv/releases/download/0.13.6/uv-aarch64-apple-darwin.tar.gz';
 const MAC_UV_SHA='60fbd5c8a1ed681845eea28d9d622fcde03c51e91a43465b64a1e17db1ed3472';
-function run(exe,args,{env={},timeout=120000,progress}={}){
+const CANCELLED='セットアップを中止しました。';
+function run(exe,args,{env={},timeout=120000,progress,signal}={}){
  return new Promise((resolve,reject)=>{
+  if(signal?.aborted){reject(Error(CANCELLED));return;}
   const p=spawn(exe,args,{cwd:os.tmpdir(),windowsHide:true,env:{...process.env,...env},stdio:['ignore','pipe','pipe']});
   let output='',settled=false;
-  const done=(error)=>{if(settled)return;settled=true;clearTimeout(timer);error?reject(error):resolve(output);};
+  const cancel=()=>{p.kill();done(Error(CANCELLED));};
+  const done=(error)=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',cancel);error?reject(error):resolve(output);};
+  signal?.addEventListener('abort',cancel,{once:true});
   for(const stream of [p.stdout,p.stderr])stream.on('data',d=>{
    const text=d.toString('utf8');output=(output+text).slice(-12000);
    if(progress)progress(text.trim().slice(-350));
@@ -39,11 +43,17 @@ async function download(url,file,hash,{timeout=120000,signal,headers,onProgress}
  }catch(e){fs.rmSync(temporary,{force:true});throw e;}
 }
 function backendRoot(){return path.join(engineRoot(path.resolve(__dirname,'..'),process.resourcesPath||'',false),'backend');}
-async function validate(python){
- const info=JSON.parse((await run(python,['-I',path.join(backendRoot(),'runtime_info.py')])).trim());
+async function validate(python,signal){
+ const info=JSON.parse((await run(python,['-I',path.join(backendRoot(),'runtime_info.py')],{signal})).trim());
  return info;
 }
-async function setup(home,progress){
+const removeDirectory=directory=>fs.promises.rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:200}).catch(()=>{});
+// Each environment takes several GB, so only the active one is kept. Called after the new one is recorded as active.
+async function removeStaleRuntimes(root,keep){
+ const stale=fs.readdirSync(root).filter(name=>/^direct-gpu-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(name)&&name!==keep);
+ await Promise.all(stale.map(name=>removeDirectory(path.join(root,name))));
+}
+async function setup(home,progress,{signal}={}){
  const mac=process.platform==='darwin'&&process.arch==='arm64';
  if(!mac&&(process.platform!=='win32'||process.arch!=='x64'))throw Error('Windows x64またはApple Silicon Macを使用してください。');
  const root=path.join(home,'runtime');fs.mkdirSync(root,{recursive:true});
@@ -51,28 +61,29 @@ async function setup(home,progress){
  try{
   const previous=JSON.parse(fs.readFileSync(active,'utf8'));
   if(previous.revision===2){
-   const info=await validate(previous.python);
+   const info=await validate(previous.python,signal);
    const driver=!mac&&fs.existsSync(path.join(process.env.WINDIR||'C:\\Windows','System32','nvcuda.dll'));
    if(driver&&!info.cuda)throw Error('GPU用環境へ更新します。');
    progress('既存のPython 3.15変換環境を確認しました。');return {python:previous.python};
   }
  }catch{}
  const dir=path.join(root,`direct-gpu-${crypto.randomUUID()}`);fs.mkdirSync(dir,{recursive:true});
+ try{
  progress('セットアップ用ツールをダウンロードしています…');
- const archive=path.join(dir,mac?'uv.tar.gz':'uv.zip');await download(mac?MAC_UV_URL:UV_URL,archive,mac?MAC_UV_SHA:UV_SHA);
+ const archive=path.join(dir,mac?'uv.tar.gz':'uv.zip');await download(mac?MAC_UV_URL:UV_URL,archive,mac?MAC_UV_SHA:UV_SHA,{signal});
  const quote=s=>"'"+s.replace(/'/g,"''")+"'";
- if(mac)await run('/usr/bin/tar',['-xzf',archive,'-C',dir,'--strip-components=1']);
- else await run('powershell.exe',['-NoProfile','-NonInteractive','-Command',`$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(dir)} -Force`]);
+ if(mac)await run('/usr/bin/tar',['-xzf',archive,'-C',dir,'--strip-components=1'],{signal});
+ else await run('powershell.exe',['-NoProfile','-NonInteractive','-Command',`$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(dir)} -Force`],{signal});
  fs.unlinkSync(archive);
  const uv=path.join(dir,mac?'uv':'uv.exe');
  if(mac)fs.chmodSync(uv,0o700);
  const install=path.join(root,'python');
  const env={UV_PYTHON_INSTALL_DIR:install,UV_CACHE_DIR:path.join(root,'uv-cache'),UV_NO_PROGRESS:'1',UV_PYTHON_DOWNLOADS:'manual'};
  progress(`Python ${PYTHON}を準備しています…`);
- await run(uv,['python','install',PYTHON,'--no-bin',...(!mac?['--no-registry']:[])],{env,timeout:300000,progress});
- const base=mac?(await run(uv,['python','find','--managed-python',PYTHON],{env})).trim().split(/\r?\n/).at(-1):path.join(install,`cpython-${PYTHON}-windows-x86_64-none`,'python.exe');
+ await run(uv,['python','install',PYTHON,'--no-bin',...(!mac?['--no-registry']:[])],{env,timeout:300000,progress,signal});
+ const base=mac?(await run(uv,['python','find','--managed-python',PYTHON],{env,signal})).trim().split(/\r?\n/).at(-1):path.join(install,`cpython-${PYTHON}-windows-x86_64-none`,'python.exe');
  const venv=path.join(dir,'venv');
- await run(uv,['venv','--python',base,venv],{env});
+ await run(uv,['venv','--python',base,venv],{env,signal});
  const python=path.join(venv,mac?'bin':'Scripts',mac?'python':'python.exe');
  const useGpu=!mac&&fs.existsSync(path.join(process.env.WINDIR||'C:\\Windows','System32','nvcuda.dll'));
  progress(useGpu?'GPU用PyTorchと音声ライブラリを準備しています（数GBのダウンロード）…':'CPU用PyTorchと音声ライブラリを準備しています…');
@@ -83,10 +94,15 @@ async function setup(home,progress){
   const content=fs.readFileSync(requirements,'utf8').replace(/^torch @ .*$/m,'torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp315-cp315-win_amd64.whl#sha256=5c21ee962b6f67821dac0bc882f5ee1539a4edeabe736284d2ff1d652e595ed1');
   requirements=path.join(dir,'requirements-cpu.txt');fs.writeFileSync(requirements,content);
  }
- await run(uv,['pip','install','--python',python,'--only-binary',':all:','-r',requirements],{env,timeout:1800000,progress});
+ await run(uv,['pip','install','--python',python,'--only-binary',':all:','-r',requirements],{env,timeout:1800000,progress,signal});
  progress('Python・GPU・音声デバイスの動作を確認しています…');
- const info=await validate(python);
+ const info=await validate(python,signal);
  fs.writeFileSync(active,JSON.stringify({...info,python_version:info.python,revision:2,python,platform:process.platform,arch:process.arch},null,2));
+ await removeStaleRuntimes(root,path.basename(dir));
  return {python};
+ }catch(error){
+  await removeDirectory(dir);
+  throw signal?.aborted?Error(CANCELLED):error;
+ }
 }
-module.exports={setup,run,download,validate,PYTHON,UV_URL,UV_SHA,MAC_UV_URL,MAC_UV_SHA};
+module.exports={setup,run,download,validate,removeStaleRuntimes,PYTHON,UV_URL,UV_SHA,MAC_UV_URL,MAC_UV_SHA};

@@ -15,9 +15,26 @@ def settings(config,budget_ms,lookback_ms,io_ms):
     return (target-lookback_ms-io_ms)
 
 class InputClock:
-    """Remember actual ADC timestamps; do not assume that two hardware clocks agree."""
+    """Remember actual ADC timestamps; do not assume that two hardware clocks agree.
+
+    A late callback reports a late time although its samples stay continuous, so a brief
+    jump keeps the sample timeline. Only a jump that lasts moves the timeline, and jumps
+    that keep recurring still stop the mix rather than stream it out of alignment.
+    """
+    OUTLIER_SECONDS=.075
+    RESYNC_AFTER_BLOCKS=50
+    MAX_RESYNCS=3
+    RESYNC_WINDOW_SAMPLES=60*RATE
+
     def __init__(self,now=time.monotonic):
         self.now=now;self.offset=None;self.anchors={};self.last_position=None
+        self.outlier_blocks=0;self.outliers=0;self.resyncs=0;self.largest_error=0.
+        self.recent_resyncs=[];self.breaks=set()
+
+    def resync(self,position):
+        self.recent_resyncs=[item for item in self.recent_resyncs if position-item<self.RESYNC_WINDOW_SAMPLES]+[position]
+        if len(self.recent_resyncs)>self.MAX_RESYNCS:raise ValueError('マイクの時刻が変化したためMIXを停止しました。')
+        self.resyncs+=1;self.outlier_blocks=0;self.breaks.add(position)
 
     def feed(self,position,count,timing,status):
         if status:raise ValueError('音声デバイスが途切れたためMIXを停止しました。')
@@ -28,12 +45,21 @@ class InputClock:
         if self.last_position is not None:
             expected=self.anchors[self.last_position]+QUANTUM/RATE
             error=stamp-expected
-            if position!=self.last_position+QUANTUM or abs(error)>.075:raise ValueError('マイクの時刻が変化したためMIXを停止しました。')
-            # WASAPI callback timestamps can repeat or advance by a full device period.
-            # Track clock drift gradually without bending an individual audio block.
-            stamp=expected+max(-.00005,min(.00005,error*.02))
+            if position!=self.last_position+QUANTUM:raise ValueError('マイクの時刻が変化したためMIXを停止しました。')
+            if abs(error)>self.OUTLIER_SECONDS:
+                self.outliers+=not self.outlier_blocks
+                self.outlier_blocks+=1
+                self.largest_error=max(self.largest_error,abs(error))
+                if self.outlier_blocks<self.RESYNC_AFTER_BLOCKS:stamp=expected
+                else:self.resync(position)
+            else:
+                self.outlier_blocks=0
+                # WASAPI callback timestamps can repeat or advance by a full device period.
+                # Track clock drift gradually without bending an individual audio block.
+                stamp=expected+max(-.00005,min(.00005,error*.02))
         self.anchors[position]=stamp;self.last_position=position
         self.anchors.pop(position-QUANTUM*450,None)
+        self.breaks.discard(position-QUANTUM*450)
 
     def times(self,position,count):
         if position<0:return None
@@ -42,7 +68,7 @@ class InputClock:
         output=np.empty(count,np.float64)
         for start in np.unique(starts):
             left,right=self.anchors.get(int(start)),self.anchors.get(int(start)+QUANTUM)
-            if left is None or right is None:return None
+            if left is None or right is None or int(start)+QUANTUM in self.breaks:return None
             mask=starts==start
             output[mask]=left+(positions[mask]-start)*(right-left)/QUANTUM
         return output

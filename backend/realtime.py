@@ -2,12 +2,13 @@
 import queue
 import math
 import os
+import sys
 import threading
 import time
 import numpy as np
 
 from backend.scheduled_audio import ScheduledAudio
-from backend.audio_controls import CONTROL_DEFAULTS, normalize_controls
+from backend.audio_controls import CONTROL_DEFAULTS, normalize_controls, apply_gain
 from backend.vocal_effects import EFFECT_DEFAULTS, normalize_effects, VocalEffects
 from backend.singing import singing_settings, output_schedule, resolve_fixed_timing
 from pathlib import Path
@@ -104,6 +105,12 @@ class Realtime:
         self.reference_fixed = False
         self.program_mix = None
         self.mix_music_gain = -6
+        self.muted = False
+
+    def set_muted(self, value):
+        if not isinstance(value, bool):
+            raise ValueError('ミュートの指定が正しくありません。')
+        self.muted = value
 
     def update_music_gain(self,value):
         if type(value) not in (int,float) or not math.isfinite(value) or not -24<=value<=6:raise ValueError('伴奏ゲインは−24〜6dBにしてください。')
@@ -112,6 +119,7 @@ class Realtime:
 
     def start_passive_reference(self):
         from backend.passive_audio import VoiceReference
+        if self.muted:raise ValueError('ミュートを解除してから確認してください。')
         if self.program_mix:raise ValueError('MIXモードでは声と伴奏を同じ時間軸で合成しています。個別ソースのずれ確認は通常モードで使用してください。')
         if not self.stream_running.is_set() or not self.reference_fixed:
             raise ValueError('固定遅延を有効にして声変換を開始してください。')
@@ -139,6 +147,8 @@ class Realtime:
         with self.probe_lock:
             if not self.stream_running.is_set() or self.stop_event.is_set():
                 raise ValueError('声変換を開始してから測定してください。')
+            if self.muted:
+                raise ValueError('ミュートを解除してから測定してください。')
             if self.sync_probe:
                 raise ValueError('テスト音声は再生中です。')
             if self.voice_reference:raise ValueError('ずれの確認を停止してから自動調整してください。')
@@ -196,6 +206,7 @@ class Realtime:
         with self.controls_lock:
             self.controls = normalize_controls(config)
             self.effects = normalize_effects(config)
+        self.muted = config.get('muted') is True
         self.stop_event.clear()
         self.notify({'type': 'state', 'state': 'loading'})
         # Model creation stays off the IPC thread so Stop also works while loading.
@@ -248,12 +259,20 @@ class Realtime:
             counters = {'dropped': 0, 'device_errors': 0}
             staging = np.zeros(block, np.float32)
             cursor = sequence = 0
+            # Muting has two gates: the output gate cuts the voice at once, even with a long
+            # fixed delay queued; the conversion gate keeps what was said while muted out of
+            # that queue and the effect tails, so unmuting never replays it.
+            output_gate = conversion_gate = 0. if self.muted else 1.
 
             def callback(indata, outdata, frames, timing, status):
-                nonlocal cursor, sequence
+                nonlocal cursor, sequence, output_gate
                 counters['device_errors'] += int(bool(status))
                 position=scheduled.cursor
                 voice=scheduled.take(frames)
+                gate = 0. if self.muted else 1.
+                if gate != 1. or output_gate != 1.:
+                    voice = apply_gain(voice, output_gate, gate)
+                    output_gate = gate
                 if mixer:
                     try:outdata[:]=mixer.render(voice,position,timing,status,delay+round(pipeline.fixed_lookback_ms*48))
                     except Exception as error:outdata.fill(0);callback_failure[0]=str(error)
@@ -321,9 +340,13 @@ class Realtime:
                 'input': input_id, 'output': output_id})
             last_sequence = -1
             last_notice = 0
+            clock_report = (0, 0)
             while not self.stop_event.is_set():
                 if callback_failure[0]:raise ValueError(callback_failure[0])
                 if mixer and mixer.failure:raise ValueError(mixer.failure)
+                if mixer and (mixer.clock.outliers,mixer.clock.resyncs)!=clock_report:
+                    clock_report=(mixer.clock.outliers,mixer.clock.resyncs)
+                    print(f'MIX clock: jumps={clock_report[0]} resyncs={clock_report[1]} largest={mixer.clock.largest_error*1000:.0f}ms',file=sys.stderr,flush=True)
                 try:
                     seq, audio = incoming.get(timeout=.1)
                 except queue.Empty:
@@ -340,6 +363,10 @@ class Realtime:
                 pipeline.set_controls(controls)
                 processing_start = time.perf_counter()
                 result = pipeline.convert(audio)
+                gate = 0. if self.muted else 1.
+                if gate != 1. or conversion_gate != 1.:
+                    result = apply_gain(result, conversion_gate, gate)
+                    conversion_gate = gate
                 result = effects_processor.process(result,effects)
                 pipeline.stats['clip'] = int(bool(pipeline.stats.get('clip',0)) or effects_processor.peak > 1.)
                 pipeline.stats['ms'] = (time.perf_counter()-processing_start)*1000

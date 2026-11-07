@@ -56,3 +56,9 @@ footer .footer-actions>.primary:hover:not(:disabled){background:#216542}
 footer .footer-actions>.primary.stop:hover:not(:disabled){background:#a23333}
 footer .footer-actions>.primary:focus-visible{outline:2px solid #174a32;outline-offset:3px}
 footer .footer-actions>.primary.stop:focus-visible{outline-color:#792929}
+footer .footer-actions>.mute-button{padding:7px 14px;border-radius:8px;box-shadow:none}
+footer .footer-actions>.mute-button[aria-pressed="true"],footer .footer-actions>.mute-button[aria-pressed="true"]:hover:not(:disabled){background:#b83f3f;border-color:#b83f3f;color:#fff}
+footer .footer-actions>.mute-button:focus-visible{outline:2px solid #792929;outline-offset:3px}
+.status.muted{color:#b83f3f}
+.status.muted i{background:#b83f3f}
+.hotkey-setup label{display:flex;align-items:center;gap:8px}

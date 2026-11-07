@@ -13,11 +13,11 @@ export default function ObsIntegration({config,disabled,onUpdate}:{config:Config
  useEffect(()=>{
   let cancelled=false,received=false;
   const unsubscribe=window.yvc.subscribe(event=>{if(event.type==='obs-status'){received=true;if(!cancelled)setStatus(event);}});
-  window.yvc.invoke('obs-status').then(next=>{if(!cancelled&&!received)setStatus(next);}).catch(e=>{if(!cancelled)setError(String(e));});
+  window.yvc.invoke('obs-status').then(next=>{if(!cancelled&&!received)setStatus(next);}).catch(e=>{if(!cancelled)setError(errorText(e));});
   return()=>{cancelled=true;unsubscribe();};
  },[]);
  const connected=status.state==='connected';
- const refresh=async()=>{setBusy(true);setError('');try{setStatus(await window.yvc.invoke('obs-refresh'));}catch(e){setError(String(e));}finally{setBusy(false);}};
+ const refresh=async()=>{setBusy(true);setError('');try{setStatus(await window.yvc.invoke('obs-refresh'));}catch(e){setError(errorText(e));}finally{setBusy(false);}};
  return <section className="card obs-integration" aria-label="OBSプラグイン">
   <div className="section-title obs-heading">
    <h3>OBSプラグイン</h3>
@@ -30,3 +30,4 @@ export default function ObsIntegration({config,disabled,onUpdate}:{config:Config
   {(error||status.error)&&<p className="hint danger" role="alert">{error||status.error}</p>}
  </section>;
 }
+import errorText from './errorText';

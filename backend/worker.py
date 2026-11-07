@@ -39,6 +39,7 @@ for line in sys.stdin:
         elif command == 'update-controls':
             if 'effects' in request: engine.update_controls(request['controls'], request['effects'])
             else: engine.update_controls(request['controls'])
+        elif command == 'set-mute': engine.set_muted(request['muted'])
         elif command in ('passive-start','passive-snapshot','passive-stop'):
             try:
                 if command=='passive-start':engine.start_passive_reference()

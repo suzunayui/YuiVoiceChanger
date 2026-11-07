@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import errorText from './errorText';
 
 const files={readme:'README.md',beatrice:'docs/beatrice.md',mac:'docs/mac-preview.md',license:'LICENSE',notices:'THIRD_PARTY_NOTICES.md'};
 type DocumentId=keyof typeof files;
@@ -17,7 +18,7 @@ export default function Help(){
  useEffect(()=>{
   let cancelled=false;setContent('');setLoading(true);setError('');
   window.yvc.invoke('read-help',doc).then(text=>{if(!cancelled)setContent(text);})
-   .catch(e=>{if(!cancelled)setError(`説明を読み込めませんでした。${String(e)}`);})
+   .catch(e=>{if(!cancelled)setError(`説明を読み込めませんでした。${errorText(e)}`);})
    .finally(()=>{if(!cancelled)setLoading(false);});
   return()=>{cancelled=true;};
  },[doc,retry]);
@@ -35,7 +36,7 @@ export default function Help(){
     if(!next)throw Error('この説明へのリンクは開けません。');
     setAnchor(decodeURIComponent(url.hash.slice(1)));setDoc(next);
    }else await window.yvc.invoke('open-help-link',url.href);
-  }catch(e){setError(String(e));}
+  }catch(e){setError(errorText(e));}
  };
  return <section ref={panel} className="card help-panel" aria-label="使い方の本文">
   {doc!=='readme'&&<button className="help-back" onClick={()=>{setAnchor('');setDoc('readme');}}>← 使い方に戻る</button>}

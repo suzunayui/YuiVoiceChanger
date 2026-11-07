@@ -5,7 +5,7 @@ const defaults = () => ({
  engine_version:2, beatrice_model:'', beatrice_voice:0, beatrice_model_alias:'', beatrice_model_icon:'', beatrice_pitch:14, beatrice_formant:0,
  beatrice_block:.08, schedule_ms:160, input_gain:12, gain:0, python:'',
  input:-1, output:-1, input_name:'', output_name:'', singing_enabled:false,singing_latency_ms:400,...effectDefaults,...obsDefaults,...mixDefaults
- ,compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000
+ ,compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000,hotkeys_enabled:false
 });
 function normalize(value, {importing=false}={}) {
  if (!value || typeof value!=='object' || Array.isArray(value)) throw Error('設定ファイルの形式が正しくありません。');
@@ -43,7 +43,7 @@ function normalize(value, {importing=false}={}) {
 }
 const controlKeys=['beatrice_pitch','beatrice_formant','input_gain','gain'];
 function liveControls(current,next,state){
- const changed=Object.keys(next).filter(key=>next[key]!==current[key]&&!obsKeys.includes(key)&&!['beatrice_model_alias','beatrice_model_icon'].includes(key));
+ const changed=Object.keys(next).filter(key=>next[key]!==current[key]&&!obsKeys.includes(key)&&!['beatrice_model_alias','beatrice_model_icon','hotkeys_enabled'].includes(key));
  if(state==='stopped'||!changed.length)return null;
  if(state!=='running'||changed.some(key=>!controlKeys.includes(key)&&!(key in effectDefaults)&&key!=='mix_music_gain'))throw Error('モデル・音声デバイス・実行先・固定遅延を変更する前に変換を停止してください。');
  return Object.fromEntries(controlKeys.map(key=>[key,next[key]]));

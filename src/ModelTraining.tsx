@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import type {Config} from './main';
+import errorText from './errorText';
 
 export default function ModelTraining({config,active,job,onPick,onUpdate,onJob,onConfig,onError}:{
  config:Config;active:boolean;job:any;onPick:(key:keyof Config)=>Promise<void>;
@@ -8,14 +9,14 @@ export default function ModelTraining({config,active,job,onPick,onUpdate,onJob,o
  const [gpu,setGpu]=useState<any>(null),[checking,setChecking]=useState(false);
  const check=async()=>{
   setChecking(true);
-  try{setGpu(await window.yvc.invoke('gpu-info'));}catch(e){onError(String(e));}
+  try{setGpu(await window.yvc.invoke('gpu-info'));}catch(e){onError(errorText(e));}
   finally{setChecking(false);}
  };
  useEffect(()=>{if(config.python)check();},[config.python]);
  const start=async(resume=false)=>{
   onError('');onJob({...job,busy:true,phase:'preparing',message:'学習を準備しています…'});
   try{onJob(await window.yvc.invoke(resume?'training-resume':'training-start',resume?undefined:config));}
-  catch(e){onError(String(e));onJob({...job,busy:false});}
+  catch(e){onError(errorText(e));onJob({...job,busy:false});}
  };
  const percent=job.total?Math.min(100,Math.round(100*(job.current||0)/job.total)):0;
  const phases:Record<string,string>={idle:'準備',preparing:'準備中',generating:'教材音声を生成中',codebooks:'声の特徴を準備中',training:'学習中',saving:'保存中',completed:'作成完了',cancelled:'中断',failed:'エラー'};
@@ -40,7 +41,7 @@ export default function ModelTraining({config,active,job,onPick,onUpdate,onJob,o
    <button title="RVCから学習用の音声を生成し、このアプリで使えるモデルを作ります。元のモデルや素材は変更しません。" className="primary" disabled={active||checking||!gpu?.eligible||!config.training_source||!config.training_audio} onClick={()=>start()}>学習モデルを作成</button>
    {job.busy&&<button title="処理の区切りで状態を保存して中断します。保存した状態から再開できます。" onClick={async()=>onJob(await window.yvc.invoke('training-cancel'))}>保存して中断</button>}
    {!job.busy&&['cancelled','failed'].includes(job.phase)&&job.id&&<button title="前回保存した学習状態の続きから再開します。" disabled={active||!gpu?.eligible} onClick={()=>start(true)}>前回の学習を再開</button>}
-   {!job.busy&&job.model&&<button title="完成したモデルを選択して、声の変換画面に戻ります。" disabled={active} onClick={async()=>{try{onConfig(await window.yvc.invoke('use-trained-model'));}catch(e){onError(String(e));}}}>作成したモデルを使う</button>}
+   {!job.busy&&job.model&&<button title="完成したモデルを選択して、声の変換画面に戻ります。" disabled={active} onClick={async()=>{try{onConfig(await window.yvc.invoke('use-trained-model'));}catch(e){onError(errorText(e));}}}>作成したモデルを使う</button>}
   </div>
  </section>;
 }

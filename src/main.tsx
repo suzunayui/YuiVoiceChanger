@@ -11,15 +11,17 @@ import SingingSettings,{effectDefaults,type EffectConfig} from './SingingSetting
 import {mixDefaults,type MixConfig} from './StreamMix';
 import {obsDefaults,type ObsConfig} from './ObsIntegration';
 import {idleCalibration,type CalibrationStatus} from './LatencyCalibration';
+import errorText from './errorText';
 
-export type Config=EffectConfig&ObsConfig&MixConfig&{singing_enabled:boolean;singing_latency_ms:number;engine_version:number;beatrice_model:string;beatrice_voice:number;beatrice_model_alias:string;beatrice_model_icon:string;beatrice_pitch:number;beatrice_formant:number;beatrice_block:number;schedule_ms:number;input_gain:number;gain:number;python:string;input:number;output:number;input_name:string;output_name:string;compute:string;training_source:string;training_audio:string;teacher_pitch:number;training_steps:number};
+export type Config=EffectConfig&ObsConfig&MixConfig&{singing_enabled:boolean;singing_latency_ms:number;engine_version:number;beatrice_model:string;beatrice_voice:number;beatrice_model_alias:string;beatrice_model_icon:string;beatrice_pitch:number;beatrice_formant:number;beatrice_block:number;schedule_ms:number;input_gain:number;gain:number;python:string;input:number;output:number;input_name:string;output_name:string;compute:string;training_source:string;training_audio:string;teacher_pitch:number;training_steps:number;hotkeys_enabled:boolean};
 type Device={id:number;name:string;host:string;inputs:number;outputs:number};
 type ComputeDevice={id:string;kind:string;name:string;available:boolean;reason?:string;memory_gb?:number};
 type RecentModel={id:string;path:string;voice:number;label:string;alias:string;icon:string;available:boolean};
 declare global{interface Window{yvc:{platform:string;invoke:(action:string,payload?:unknown)=>Promise<any>;subscribe:(callback:(event:any)=>void)=>()=>void}}}
-const empty:Config={...effectDefaults,...obsDefaults,...mixDefaults,singing_enabled:false,singing_latency_ms:400,engine_version:2,beatrice_model:'',beatrice_voice:0,beatrice_model_alias:'',beatrice_model_icon:'',beatrice_pitch:14,beatrice_formant:0,beatrice_block:.08,schedule_ms:160,input_gain:12,gain:0,python:'',input:-1,output:-1,input_name:'',output_name:'',compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000};
+const empty:Config={...effectDefaults,...obsDefaults,...mixDefaults,singing_enabled:false,singing_latency_ms:400,engine_version:2,beatrice_model:'',beatrice_voice:0,beatrice_model_alias:'',beatrice_model_icon:'',beatrice_pitch:14,beatrice_formant:0,beatrice_block:.08,schedule_ms:160,input_gain:12,gain:0,python:'',input:-1,output:-1,input_name:'',output_name:'',compute:'auto',training_source:'',training_audio:'',teacher_pitch:0,training_steps:10000,hotkeys_enabled:false};
 const supported=['win32','darwin'].includes(window.yvc.platform);
 const audioHost=window.yvc.platform==='darwin'?'Core Audio':'Windows WASAPI';
+const hotkeyPrefix=window.yvc.platform==='darwin'?'⌘+Option':'Ctrl+Alt';
 const basename=(value:string)=>value.split(/[\\/]/).pop()||'モデル未選択';
 const samePath=(a:string,b:string)=>a.replace(/\\/g,'/').toLowerCase()===b.replace(/\\/g,'/').toLowerCase();
 
@@ -39,6 +41,7 @@ function App(){
  const [installingObsPlugin,setInstallingObsPlugin]=useState(false),[obsPluginMessage,setObsPluginMessage]=useState(''),[obsPluginError,setObsPluginError]=useState('');
  const [installingOfficial,setInstallingOfficial]=useState(false),[officialMessage,setOfficialMessage]=useState(''),[officialError,setOfficialError]=useState('');
  const [computeDevices,setComputeDevices]=useState<ComputeDevice[]>([]),[computeLoading,setComputeLoading]=useState(true),[computeWarning,setComputeWarning]=useState(''),[computeRefresh,setComputeRefresh]=useState(0);
+ const [muted,setMuted]=useState(false),[hotkeyFailures,setHotkeyFailures]=useState<string[]>([]);
  const converting=state!=='stopped'||presetSwitching;
  const active=converting||settingUp||job.busy||inspecting||installingOfficial||changingIcon||calibration.busy||presetSwitching;
  const adjustmentsDisabled=settingUp||job.busy||inspecting||installingOfficial||changingIcon||calibration.busy||presetSwitching||!['stopped','running'].includes(state);
@@ -49,10 +52,10 @@ function App(){
   if(!iconIds){setIconImages({});return;}
   Promise.all(iconIds.split(',').map(async id=>[id,await window.yvc.invoke('model-icon',id)]))
    .then(entries=>{if(!cancelled)setIconImages(Object.fromEntries(entries));})
-   .catch(e=>{if(!cancelled)setError(String(e));});
+   .catch(e=>{if(!cancelled)setError(errorText(e));});
   return()=>{cancelled=true;};
  },[iconIds]);
- useEffect(()=>{if(loaded&&!presetSwitching)window.yvc.invoke('save',config).catch(e=>setError(String(e)));},[config,loaded,presetSwitching]);
+ useEffect(()=>{if(loaded&&!presetSwitching)window.yvc.invoke('save',config).catch(e=>setError(errorText(e)));},[config,loaded,presetSwitching]);
  useEffect(()=>{
   if(!loaded||!devices.length)return;
   setConfig(prev=>{
@@ -83,16 +86,20 @@ function App(){
    if(event.type==='loading')setMessage(event.message);
    if(event.type==='metrics')setMetrics(event);
    if(event.type==='error')setError(event.message);
+   if(event.type==='notice')setMessage(event.message);
+   if(event.type==='mute')setMuted(event.muted);
+   if(event.type==='hotkeys')setHotkeyFailures(event.failed);
   });
   window.yvc.invoke('config').then(c=>{
    setConfig(c);setLoaded(true);
    if(!c.python){setTab('setup');setMessage('変換環境をセットアップしてください。');}
    else if(!c.beatrice_model)setMessage('モデル一覧から声のモデルを選択してください。');
    return window.yvc.invoke('devices');
-  }).catch(e=>setError(String(e)));
-  window.yvc.invoke('training-status').then(setJob).catch(e=>setError(String(e)));
-  window.yvc.invoke('latency-calibration-status').then(setCalibration).catch(e=>setError(String(e)));
-  window.yvc.invoke('model-history').then(setModelHistory).catch(e=>setError(String(e)));
+  }).catch(e=>setError(errorText(e)));
+  window.yvc.invoke('training-status').then(setJob).catch(e=>setError(errorText(e)));
+  window.yvc.invoke('latency-calibration-status').then(setCalibration).catch(e=>setError(errorText(e)));
+  window.yvc.invoke('model-history').then(setModelHistory).catch(e=>setError(errorText(e)));
+  window.yvc.invoke('hotkeys-status').then(status=>setHotkeyFailures(status.failed)).catch(e=>setError(errorText(e)));
   return unsubscribe;
  },[]);
  useEffect(()=>{
@@ -107,7 +114,7 @@ function App(){
  const update=(key:keyof Config,value:string|number)=>setConfig(prev=>({
   ...prev,[key]:value,...(key==='beatrice_model'&&value!==prev.beatrice_model?{beatrice_voice:0,beatrice_model_alias:'',beatrice_model_icon:''}:{})
  }));
- const invoke=async(action:string,payload?:unknown)=>{try{return await window.yvc.invoke(action,payload);}catch(e){setError(String(e));}};
+ const invoke=async(action:string,payload?:unknown)=>{try{return await window.yvc.invoke(action,payload);}catch(e){setError(errorText(e));}};
  const pick=async(key:keyof Config)=>{
   const value=await invoke('pick',key);if(!value)return;
   if(key==='training_source'&&config.python){
@@ -116,7 +123,7 @@ function App(){
     const info=await window.yvc.invoke('inspect-model',value);
     if(info.train_required){update('training_source',info.path);setTab('training');setMessage('RVCモデルを読み込みました。学習素材とGPUを確認してください。');}
     else setError('RVCの.pthまたは.onnxを選んでください。このモデルは直接使用できます。');
-   }catch(e){setError(String(e));}finally{setInspecting(false);}
+   }catch(e){setError(errorText(e));}finally{setInspecting(false);}
   }else update(key,value);
  };
  const changeModelIcon=async(clear=false)=>{
@@ -124,7 +131,7 @@ function App(){
   try{
    const next=await window.yvc.invoke(clear?'clear-model-icon':'pick-model-icon',{path:config.beatrice_model,voice:config.beatrice_voice});
    if(next){setConfig(next);setMessage(clear?'アイコンを外しました。':'アイコンを設定しました。');}
-  }catch(e){setError(String(e));}
+  }catch(e){setError(errorText(e));}
   finally{setChangingIcon(false);}
  };
  const addLibraryModel=async()=>{
@@ -146,7 +153,11 @@ function App(){
   try{
    const c=await window.yvc.invoke('setup-runtime');setConfig(c);
    setSetupMessage('準備完了。');setMessage('');
-  }catch(e){setError(String(e));setSetupMessage('準備できませんでした。エラー内容を確認して再試行してください。');}
+  }catch(e){
+   const detail=errorText(e);
+   if(/中止/.test(detail))setSetupMessage(detail);
+   else{setError(detail);setSetupMessage('準備できませんでした。エラー内容を確認して再試行してください。');}
+  }
   finally{setSettingUp(false);}
  };
  const installTsukuyomi=async()=>{
@@ -156,7 +167,7 @@ function App(){
    setConfig(result.config);setModelHistory(result.models);setOfficialMessage('つくよみちゃん（コーパス）を一覧に追加しました。');
    return result.id as string;
   }catch(e){
-   const detail=String(e);
+   const detail=errorText(e);
    if(/abort|cancel|中止/i.test(detail))setOfficialMessage('導入を中止しました。');
    else{setOfficialError(detail);setOfficialMessage('導入できませんでした。ネット接続を確認して再試行してください。');}
    return null;
@@ -167,7 +178,7 @@ function App(){
   try{
    if(converting){setState('stopping');await window.yvc.invoke('stop');setMessage('停止しています…');}
    else{setState('loading');setMetrics({});await window.yvc.invoke('start',config);}
-  }catch(e){setError(String(e));setState('stopped');}
+  }catch(e){setError(errorText(e));setState('stopped');}
  };
  const model=config.beatrice_model;
  const currentRecentModel=modelHistory.find(item=>samePath(item.path,model)&&item.voice===config.beatrice_voice);
@@ -218,8 +229,8 @@ function App(){
     <section className="card settings-transfer" aria-label="設定の保存・読み込み">
      <h3>設定の保存・読み込み</h3>
      <div className="guide-actions">
-      <button title="保存した設定JSONを読み込みます。別のPCではモデルなどの保存先を選び直してください。" disabled={active} onClick={async()=>{try{const c=await window.yvc.invoke('import-settings');if(c){setConfig(c);setDevices(d=>[...d]);setMessage('設定を読み込みました。');setError('');}}catch(e){setError(String(e));}}}>設定をインポート</button>
-      <button title="現在の設定をJSONファイルに保存します。モデル本体は含みません。" disabled={active} onClick={async()=>{try{await window.yvc.invoke('save',config);const file=await window.yvc.invoke('export-settings');if(file)setMessage('設定を書き出しました。');}catch(e){setError(String(e));}}}>設定をエクスポート</button>
+      <button title="保存した設定JSONを読み込みます。別のPCではモデルなどの保存先を選び直してください。" disabled={active} onClick={async()=>{try{const c=await window.yvc.invoke('import-settings');if(c){setConfig(c);setDevices(d=>[...d]);setMessage('設定を読み込みました。');setError('');}}catch(e){setError(errorText(e));}}}>設定をインポート</button>
+      <button title="現在の設定をJSONファイルに保存します。モデル本体は含みません。" disabled={active} onClick={async()=>{try{await window.yvc.invoke('save',config);const file=await window.yvc.invoke('export-settings');if(file)setMessage('設定を書き出しました。');}catch(e){setError(errorText(e));}}}>設定をエクスポート</button>
      </div>
     </section>
     </div>
@@ -247,7 +258,7 @@ function App(){
    </>:tab==='singing'?null:<section className="card settings">
     <section className="runtime-setup" aria-label="変換環境">
      <div className="section-title"><h3>変換環境</h3><span className="pill">{config.python?'設定済み':'未設定'}</span></div>
-     <div className="guide-actions"><button title="変換に必要な環境を自動で用意します。初回は数GBのダウンロードが必要な場合があります。このPCのPythonやPATHは変更しません。" disabled={active||!supported} onClick={setup}>{settingUp?'セットアップ中…':'必要な環境を自動セットアップ'}</button></div>
+     <div className="guide-actions"><button title="変換に必要な環境を自動で用意します。初回は数GBのダウンロードが必要な場合があります。このPCのPythonやPATHは変更しません。" disabled={active||!supported} onClick={setup}>{settingUp?'セットアップ中…':'必要な環境を自動セットアップ'}</button>{settingUp&&<button title="今回のセットアップを中止します。途中まで用意したファイルは片付けます。" onClick={()=>invoke('cancel-setup')}>中止する</button>}</div>
      {config.python&&<p className="runtime-path" title="使用している専用環境のPythonです。"><span>Python：</span><code>{config.python}</code></p>}
      {setupMessage&&<p className="hint" role="status">{setupMessage}</p>}
     </section>
@@ -264,6 +275,12 @@ function App(){
      </div>
      {computeWarning&&<p role="status" className="hint danger">{computeWarning}</p>}
     </fieldset>
+    <section className="runtime-setup hotkey-setup" aria-label="ホットキー">
+     <div className="section-title"><h3>ホットキー</h3></div>
+     <label title="オンの間、下のキーの組み合わせはこのアプリが受け取ります。ゲームや他のアプリで同じキーを使っている場合はオフにしてください。"><input type="checkbox" checked={config.hotkeys_enabled} onChange={e=>{const hotkeys_enabled=e.target.checked;setConfig(prev=>({...prev,hotkeys_enabled}));}}/> 他のアプリを使っている間もキーで操作する</label>
+     <p className="hint">{hotkeyPrefix}+M：ミュートの切り替え（変換中のみ）／{hotkeyPrefix}+1〜9：プリセットを左から順に適用</p>
+     {hotkeyFailures.length>0&&<p className="hint danger" role="alert">他のアプリが使用中のため登録できませんでした：{hotkeyFailures.map(key=>key.replace('CommandOrControl+Alt',hotkeyPrefix)).join('、')}</p>}
+    </section>
     {window.yvc.platform==='win32'&&<section className="runtime-setup obs-plugin-setup" aria-label="OBSプラグイン">
      <div className="section-title">
       <h3>OBSプラグイン</h3>
@@ -272,7 +289,7 @@ function App(){
        try{
         const result=await window.yvc.invoke('install-obs-plugin');
         setObsPluginMessage((result.alreadyInstalled?'導入済みです。':'導入しました。OBSを再起動してください。')+' OBSの「ツール」から「YuiVoiceChanger」を選びます。');
-       }catch(error){setObsPluginError((error instanceof Error?error.message:String(error)).replace(/^Error invoking remote method '[^']+': Error: /,''));}
+       }catch(error){setObsPluginError(errorText(error));}
        finally{setInstallingObsPlugin(false);}
       }}>{installingObsPlugin?'導入中…':'OBSプラグインを導入する'}</button>
      </div>
@@ -281,7 +298,7 @@ function App(){
     </section>}
    </section>
 }
-   <footer><div className="footer-message">{inspecting?'モデルの形式を確認しています…':message}</div><div className="footer-actions"><div className={'status '+(state==='running'?'live':'')}><i/>{state==='running'?'変換中':state==='stopped'?'待機中':state==='stopping'?'停止中':'準備中'}</div><button title={converting?'マイクからの変換を停止します。':!config.python?'環境設定で変換環境をセットアップしてください。':!model?'モデル一覧から声のモデルを選択してください。':config.input<0||config.output<0?'マイクと出力先を選択してください。':'選択したマイクの声を変換し、指定した出力先へ送ります。'} className={'primary '+(converting?'stop':'')} onClick={toggle} disabled={!supported||settingUp||installingOfficial||changingIcon||job.busy||calibration.busy||inspecting||(state==='stopping'&&!presetSwitching)||(!converting&&(!config.python||!model||config.input<0||config.output<0))}>{state==='stopping'&&!presetSwitching?'停止中…':converting?'■ 停止する':'▶  声変換をはじめる'}</button></div></footer>
+   <footer><div className="footer-message">{inspecting?'モデルの形式を確認しています…':message}</div><div className="footer-actions">{state==='running'&&<button className="obs-button mute-button" aria-pressed={muted} title={`変換後の声を出力しないようにします。伴奏と変換処理は止まりません。ミュート中に話した声は解除後も流れません。${config.hotkeys_enabled?`（${hotkeyPrefix}+M）`:''}`} onClick={()=>invoke('set-mute',!muted)}>ミュート</button>}<div className={'status '+(state==='running'?(muted?'muted':'live'):'')}><i/>{state==='running'?(muted?'ミュート中':'変換中'):state==='stopped'?'待機中':state==='stopping'?'停止中':'準備中'}</div><button title={converting?'マイクからの変換を停止します。':!config.python?'環境設定で変換環境をセットアップしてください。':!model?'モデル一覧から声のモデルを選択してください。':config.input<0||config.output<0?'マイクと出力先を選択してください。':'選択したマイクの声を変換し、指定した出力先へ送ります。'} className={'primary '+(converting?'stop':'')} onClick={toggle} disabled={!supported||settingUp||installingOfficial||changingIcon||job.busy||calibration.busy||inspecting||(state==='stopping'&&!presetSwitching)||(!converting&&(!config.python||!model||config.input<0||config.output<0))}>{state==='stopping'&&!presetSwitching?'停止中…':converting?'■ 停止する':'▶  声変換をはじめる'}</button></div></footer>
   </main>
   {library&&<ModelLibrary items={modelHistory} icons={iconImages} currentId={currentRecentModel?.id} selectedId={selectedRecentModel?.id} onSelect={setSelectedModelId} disabled={active} onClose={()=>setLibrary(false)} onTrain={()=>{setTab('training');setLibrary(false);}} onAdd={addLibraryModel} onUse={useLibraryModel} onSave={saveLibraryModel} onRemove={removeLibraryModel} onPickIcon={id=>window.yvc.invoke('pick-library-icon',{id})} official={{installing:installingOfficial,message:officialMessage,error:officialError,supported,onInstall:installTsukuyomi,onCancel:async()=>{setOfficialMessage('導入を中止しています…');await window.yvc.invoke('cancel-official-model');},onTerms:()=>window.yvc.invoke('open-resource','tsukuyomi_terms')}}/>}
  </div>;

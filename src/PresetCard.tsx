@@ -1,13 +1,14 @@
 import React,{useEffect,useRef,useState} from 'react';
 import type {Config} from './main';
+import errorText from './errorText';
 type Preset={id:string;name:string;active?:boolean};
 type Props={config:Config;disabled:boolean;saveDisabled:boolean;onApply:(config:Config)=>void};
 export default function PresetCard({config,disabled,saveDisabled,onApply}:Props){
  const [items,setItems]=useState<Preset[]>([]);
  const [editing,setEditing]=useState<Preset|'new'|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
- useEffect(()=>{let cancelled=false;window.yvc.invoke('presets').then(next=>{if(!cancelled)setItems(next);}).catch(e=>{if(!cancelled)setError(String(e));});return()=>{cancelled=true;};},[]);
+ useEffect(()=>{let cancelled=false;window.yvc.invoke('presets').then(next=>{if(!cancelled)setItems(next);}).catch(e=>{if(!cancelled)setError(errorText(e));});return()=>{cancelled=true;};},[]);
  useEffect(()=>window.yvc.subscribe(event=>{if(event.type==='presets')setItems(event.items);}),[]);
- const apply=async(item:Preset)=>{setBusy(true);setError('');setMessage('');try{const next=await window.yvc.invoke('apply-preset',item.id);onApply(next);setMessage(`「${item.name}」を適用しました。`);}catch(e){setError(String(e));}finally{setBusy(false);}};
+ const apply=async(item:Preset)=>{setBusy(true);setError('');setMessage('');try{const next=await window.yvc.invoke('apply-preset',item.id);onApply(next);setMessage(`「${item.name}」を適用しました。`);}catch(e){setError(errorText(e));}finally{setBusy(false);}};
  return <section className="card preset-card" aria-label="プリセット">
   <div className="section-title"><h3>プリセット</h3><button className="obs-button" disabled={busy||saveDisabled} title="現在のモデル・音声ルート・声の調整・実行先・歌枠用設定に名前を付けて保存します。Python環境・学習設定・OBSのパスワードは保存しません。" onClick={()=>{setError('');setEditing('new');}}>現在の設定を保存</button></div>
   <div className="preset-list">{items.map(item=><div className="preset-entry" key={item.id}>
@@ -23,8 +24,8 @@ function PresetEditor({item,config,disabled,onClose,onSaved}:{item?:Preset;confi
  const dialog=useRef<HTMLDialogElement>(null),[name,setName]=useState(item?.name||'');
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[confirm,setConfirm]=useState<'overwrite'|'remove'|null>(null);
  useEffect(()=>{dialog.current?.showModal();return()=>dialog.current?.close();},[]);
- const save=async(overwrite=false)=>{setBusy(true);setError('');try{const result=await window.yvc.invoke('save-preset',{id:item?.id,name,...(!item||overwrite?{config}:{})});onSaved(result.items,result.id,`「${name.trim()}」を保存しました。`);}catch(e){setError(String(e));}finally{setBusy(false);}};
- const remove=async()=>{setBusy(true);setError('');try{const items=await window.yvc.invoke('remove-preset',item?.id);onSaved(items,'','プリセットを削除しました。');}catch(e){setError(String(e));}finally{setBusy(false);}};
+ const save=async(overwrite=false)=>{setBusy(true);setError('');try{const result=await window.yvc.invoke('save-preset',{id:item?.id,name,...(!item||overwrite?{config}:{})});onSaved(result.items,result.id,`「${name.trim()}」を保存しました。`);}catch(e){setError(errorText(e));}finally{setBusy(false);}};
+ const remove=async()=>{setBusy(true);setError('');try{const items=await window.yvc.invoke('remove-preset',item?.id);onSaved(items,'','プリセットを削除しました。');}catch(e){setError(errorText(e));}finally{setBusy(false);}};
  const locked=busy||disabled;
  return <dialog ref={dialog} className="model-library preset-dialog" aria-label={confirm==='remove'?'プリセットを削除':confirm==='overwrite'?'プリセットを上書き':item?'プリセットを編集':'プリセットを保存'} onCancel={e=>{e.preventDefault();if(!busy)onClose();}}>
   <div className="library-header"><h2>{confirm==='remove'?'プリセットを削除しますか？':confirm==='overwrite'?'現在の設定で上書きしますか？':item?'プリセットを編集':'プリセットを保存'}</h2><button aria-label="プリセットの編集を閉じる" disabled={busy} onClick={onClose}>×</button></div>

@@ -39,6 +39,86 @@ class LiveControlsTests(unittest.TestCase):
         self.assertTrue(np.all(np.diff(output[:480]) >= 0))
         np.testing.assert_array_equal(source, np.ones(3840, np.float32))
 
+    def test_mute_cuts_output_at_once_and_unmute_never_replays_muted_speech(self):
+        output, positions = [], []
+        pumped = threading.Event()
+        class Pipeline:
+            rate = 48000
+            device_name = 'CPU'
+            format = 'test'
+            block = 3840
+            config = {'block': .08}
+            def __init__(self, config, notify): pass
+            def warmup(self, stop): pass
+            def reset(self): pass
+            def set_controls(self, controls): pass
+            def convert(self, audio):
+                self.stats = {'ms': 1., 'lookback_ms': 65.}
+                return np.full(self.block, .5, np.float32)
+        class Stream:
+            latency = (.01, .01)
+            def __init__(self, **kwargs):
+                self.callback = kwargs['callback']
+                self.active = False
+                self.done = threading.Event()
+            def start(self):
+                self.active = True
+                def pump():
+                    while not self.done.is_set():
+                        out = np.zeros((480, 2), np.float32)
+                        self.callback(np.zeros((480, 1), np.float32), out, 480, None, False)
+                        output.append(float(np.abs(out).max()))
+                        pumped.set()
+                        self.done.wait(.002)
+                self.thread = threading.Thread(target=pump, daemon=True)
+                self.thread.start()
+            def abort(self):
+                self.active = False
+                self.done.set()
+                self.thread.join(1)
+            def close(self): pass
+        available = [dict(id=1, name='mic', host='Windows WASAPI', inputs=1, outputs=0), dict(id=2, name='out', host='Windows WASAPI', inputs=0, outputs=2)]
+        def wait_for(condition):
+            deadline = time.monotonic()+5
+            while not condition() and time.monotonic() < deadline: time.sleep(.005)
+            self.assertTrue(condition())
+        events = []
+        engine = Realtime(events.append)
+        with self.assertRaises(ValueError): engine.set_muted('yes')
+        with patch('backend.direct_gpu.BeatricePipeline', Pipeline), patch('backend.realtime.devices', return_value=available), patch('backend.realtime.audio_settings', return_value=(None, None)), patch('sounddevice.query_devices', return_value={'max_output_channels': 2}), patch('sounddevice.Stream', Stream):
+            try:
+                engine.start({'input': 1, 'output': 2})
+                self.assertFalse(engine.muted)
+                wait_for(lambda: output and max(output) > .4)
+                engine.set_muted(True)
+                # The queued voice is still scheduled; the next callback after the ramp is silent anyway.
+                mark = len(output)
+                wait_for(lambda: len(output) > mark+3)
+                self.assertEqual(max(output[mark+2:]), 0.)
+                with self.assertRaises(ValueError): engine.start_sync_test('0'*36)
+                with self.assertRaises(ValueError): engine.start_passive_reference()
+                # Hold the mute past the schedule so only muted conversions remain queued.
+                mark = len(output)
+                wait_for(lambda: len(output) > mark+120)
+                engine.set_muted(False)
+                mark = len(output)
+                wait_for(lambda: max(output[mark:], default=0) > .4)
+                self.assertGreaterEqual(len(output)-mark, 2, 'unmuting waits for audio converted after the mute ended')
+            finally:
+                engine.stop()
+                engine.thread.join(3)
+        self.assertFalse(any(event['type'] == 'error' for event in events), events)
+
+    def test_start_can_begin_muted_for_preset_restarts(self):
+        engine = Realtime(lambda event: None)
+        with patch.object(threading.Thread, 'start', lambda self: None):
+            engine.start({'muted': True})
+        self.assertTrue(engine.muted)
+        with patch.object(threading.Thread, 'start', lambda self: None):
+            engine.thread = None
+            engine.start({})
+        self.assertFalse(engine.muted)
+
     def test_pipeline_changes_controls_without_reloading_or_resetting_history(self):
         class Model:
             device = torch.device('cpu')
