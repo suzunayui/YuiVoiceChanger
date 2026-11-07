@@ -77,10 +77,41 @@ pub fn iso_now() -> String {
     )
 }
 
+pub struct LocalTime {
+    pub year: u16,
+    pub month: u16,
+    pub day: u16,
+    pub hour: u16,
+    pub minute: u16,
+    pub second: u16,
+}
+
+/// The time as the person's clock shows it.
+#[cfg(windows)]
+pub fn local_now() -> LocalTime {
+    use windows_sys::Win32::System::SystemInformation::GetLocalTime;
+    let mut time = unsafe { std::mem::zeroed() };
+    unsafe { GetLocalTime(&mut time) };
+    LocalTime { year: time.wYear, month: time.wMonth, day: time.wDay, hour: time.wHour, minute: time.wMinute, second: time.wSecond }
+}
+
+#[cfg(not(windows))]
+pub fn local_now() -> LocalTime {
+    let now = iso_now();
+    let part = |range: std::ops::Range<usize>| now[range].parse().unwrap_or(0);
+    LocalTime { year: part(0..4), month: part(5..7), day: part(8..10), hour: part(11..13), minute: part(14..16), second: part(17..19) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn reads_the_local_clock() {
+        let now = local_now();
+        assert!(now.year >= 2026 && (1..=12).contains(&now.month) && (1..=31).contains(&now.day) && now.hour < 24 && now.minute < 60);
+    }
 
     #[test]
     fn numbers_compare_like_javascript() {

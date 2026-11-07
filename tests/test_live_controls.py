@@ -1,3 +1,4 @@
+import io
 import json
 import subprocess
 import sys
@@ -11,9 +12,50 @@ import numpy as np
 import torch
 from backend.audio_controls import normalize_controls, apply_gain
 from backend.direct_gpu import BeatricePipeline
-from backend.realtime import Realtime
+from backend.realtime import Realtime, SINGING_DEVICE_LATENCY, open_audio_stream
 from backend.scheduled_audio import ScheduledAudio
 from backend.singing import latency_signature
+
+
+class SingingBufferTests(unittest.TestCase):
+    class Fake:
+        def __init__(self, requested):
+            self.requested = requested
+            self.latency = (.02, .03) if requested == 'low' else (.11, .12)
+            self.closed = False
+        def close(self):
+            self.closed = True
+
+    def open(self, opened, refuse=False):
+        def opener(latency):
+            if refuse and latency != 'low':
+                import sounddevice
+                raise sounddevice.PortAudioError('refused')
+            opened.append(self.Fake(latency))
+            return opened[-1]
+        return opener
+
+    def test_normal_mode_keeps_the_low_latency_buffer(self):
+        opened = []
+        stream, io_ms = open_audio_stream(self.open(opened), False)
+        self.assertEqual(stream.requested, 'low')
+        self.assertAlmostEqual(io_ms, 50)
+        self.assertEqual(len(opened), 1)
+
+    def test_singing_uses_the_larger_buffer_and_keeps_the_low_latency_timing(self):
+        opened = []
+        stream, io_ms = open_audio_stream(self.open(opened), True)
+        self.assertEqual(stream.requested, SINGING_DEVICE_LATENCY)
+        self.assertAlmostEqual(io_ms, 50)
+        self.assertTrue(opened[0].closed)
+        self.assertFalse(stream.closed)
+
+    def test_device_refusing_the_larger_buffer_falls_back(self):
+        opened = []
+        stream, io_ms = open_audio_stream(self.open(opened, refuse=True), True)
+        self.assertEqual(stream.requested, 'low')
+        self.assertFalse(stream.closed)
+        self.assertAlmostEqual(io_ms, 50)
 
 
 class LiveControlsTests(unittest.TestCase):
@@ -198,8 +240,10 @@ class LiveControlsTests(unittest.TestCase):
                 positions.append(position)
                 return super().put(position, output)
         class Stream:
-            latency = (.01, .045) if legacy else (.01, .01)
             def __init__(self, **kwargs):
+                self.requested_latency = kwargs['latency']
+                # PortAudio reports far more than a larger buffer really delays (see open_audio_stream).
+                self.latency = (.11, .12) if kwargs['latency'] != 'low' else (.01, .045) if legacy else (.01, .01)
                 self.callback = kwargs['callback']
                 self.active = False
                 self.done = threading.Event()
@@ -219,7 +263,8 @@ class LiveControlsTests(unittest.TestCase):
             def close(self): pass
         available = [dict(id=1, name='mic', host='Windows WASAPI', inputs=1, outputs=0), dict(id=2, name='out', host='Windows WASAPI', inputs=0, outputs=2)]
         engine = Realtime(events.append)
-        with patch('backend.direct_gpu.BeatricePipeline', Pipeline), patch('backend.realtime.ScheduledAudio', Schedule), patch('backend.realtime.devices', return_value=available), patch('backend.realtime.audio_settings', return_value=(None, None)), patch('sounddevice.query_devices', return_value={'max_output_channels': 2}), patch('sounddevice.Stream', Stream):
+        diagnostics_log = io.StringIO()
+        with patch('sys.stderr', diagnostics_log), patch('backend.direct_gpu.BeatricePipeline', Pipeline),patch('backend.realtime.ScheduledAudio', Schedule), patch('backend.realtime.devices', return_value=available), patch('backend.realtime.audio_settings', return_value=(None, None)), patch('sounddevice.query_devices', return_value={'max_output_channels': 2}), patch('sounddevice.Stream', Stream):
             try:
                 config = {'input': 1, 'output': 2, 'singing_enabled': singing, 'singing_latency_ms': 200 if manual else 400,
                           'obs_correction_ms': 300 if manual else 0, 'obs_delay_manual': manual}
@@ -245,8 +290,12 @@ class LiveControlsTests(unittest.TestCase):
                 engine.stop()
                 engine.thread.join(3)
         self.assertFalse(engine.thread.is_alive())
+        logged = diagnostics_log.getvalue()
+        self.assertRegex(logged, rf'\d{{4}}-\d\d-\d\d \d\d:\d\d:\d\d Audio start: .*singing={singing}')
+        self.assertRegex(logged, r'Audio report: callback_late=\d+ largest_gap_ms=\d+ voice_late_blocks=\d+')
         self.assertEqual(len(pipelines), 1)
-        self.assertEqual(len(streams), 1)
+        self.assertEqual([stream.requested_latency for stream in streams], ['low', SINGING_DEVICE_LATENCY] if singing else ['low'])
+        self.assertFalse(hasattr(streams[0], 'thread') and singing)
         self.assertEqual(pipelines[0].resets, 0)
         self.assertEqual(pipelines[0].controls, target)
         self.assertGreaterEqual(len(positions), 2)

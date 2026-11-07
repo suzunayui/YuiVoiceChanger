@@ -1,8 +1,53 @@
 import types
 import unittest
 import numpy as np
-from backend.program_mix import InputClock, ProgramMix, settings
+from backend.program_mix import InputClock, MusicLevel, ProgramMix, settings
 from backend.scheduled_audio import ScheduledAudio
+
+
+class MusicLevelTests(unittest.TestCase):
+    def fill(self,level,peak,seconds=10):
+        for _ in range(seconds*100):level.record(peak)
+
+    def test_reads_the_peak_since_the_last_read_in_db(self):
+        level=MusicLevel()
+        level.record(.1);level.record(.5);level.record(.25)
+        self.assertAlmostEqual(level.take_db(),-6.02,places=1)
+        level.record(.1)
+        self.assertAlmostEqual(level.take_db(),-20,places=1)
+
+    def test_quiet_music_is_low_only_after_a_full_window(self):
+        level=MusicLevel()
+        self.fill(level,.03,seconds=5)
+        self.assertFalse(level.low)
+        self.fill(level,.03,seconds=5)
+        self.assertTrue(level.low)
+
+    def test_silence_and_normal_music_are_not_low(self):
+        for peak in (0.,.0005,.5):
+            level=MusicLevel()
+            self.fill(level,peak)
+            self.assertFalse(level.low,peak)
+
+    def test_one_loud_moment_clears_low_until_it_leaves_the_window(self):
+        level=MusicLevel()
+        self.fill(level,.03)
+        level.record(.5)
+        self.fill(level,.03,seconds=1)
+        self.assertFalse(level.low)
+        self.fill(level,.03,seconds=10)
+        self.assertTrue(level.low)
+
+    def test_level_is_measured_before_the_accompaniment_gain(self):
+        mixer=ProgramMix('test','test',6,loopback=object())
+        mixer.clock.now=lambda:1000.0
+        for block in range(40):
+            samples=np.full((480,2),.05,np.float32)
+            mixer.music.append(1000+block*.01,samples)
+            stamp=1000+block*.01
+            timing=types.SimpleNamespace(inputBufferAdcTime=stamp,currentTime=stamp)
+            mixer.render(np.zeros(480,np.float32),block*480,timing,False,480*5)
+        self.assertAlmostEqual(mixer.level.take_db(),-26,delta=1)
 
 
 def timing_at(stamp):

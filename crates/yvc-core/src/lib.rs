@@ -4,6 +4,7 @@
 pub mod app;
 pub mod calibration;
 pub mod config;
+pub mod diagnostic_log;
 pub mod icons;
 pub mod model_history;
 pub mod obs;

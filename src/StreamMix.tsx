@@ -6,7 +6,8 @@ export const mixDefaults={mix_enabled:false,mix_latency_ms:500,mix_device_id:'de
 export type MixConfig=typeof mixDefaults;
 type Device={id:string;name:string;default:boolean};
 const playbackHelp='自分には伴奏をそのまま再生し、配信には声と伴奏をまとめて送ります。変換音声の出力先には、CABLE Inputなど、伴奏の再生先とは別のデバイスを選んでください。';
-export default function StreamMix({config,active,disabled,running,onUpdate,children}:{config:Config;active:boolean;disabled:boolean;running:boolean;children:ReactNode;onUpdate:(patch:Partial<Config>)=>void}){
+const METER_FLOOR_DB=-60;
+export default function StreamMix({config,active,disabled,running,metrics,onUpdate,children}:{config:Config;active:boolean;disabled:boolean;running:boolean;metrics:any;children:ReactNode;onUpdate:(patch:Partial<Config>)=>void}){
  const [devices,setDevices]=useState<Device[]>([]),[error,setError]=useState('');
  const [switching,setSwitching]=useState(false),[switchError,setSwitchError]=useState('');
  useEffect(()=>{
@@ -39,6 +40,12 @@ export default function StreamMix({config,active,disabled,running,onUpdate,child
    <span id="mix-playback-help" hidden>{playbackHelp}</span>
    <Slider label="伴奏ゲイン" help="配信へ送る伴奏の音量です。自分が聴く音量は変えません。変換中も調整できます。" value={config.mix_music_gain} min={-24} max={6} unit="dB" signed disabled={disabled} onChange={value=>onUpdate({mix_music_gain:value})}/>
    {running&&<p className="hint" role="status">声と伴奏をアプリ内で同期してMIX中</p>}
+   {running&&Number.isFinite(metrics.music_db)&&<div className="mix-music-level" title="伴奏ゲインをかける前の、再生先から取り込んだ音量です。">
+    <span>取り込んだ伴奏</span>
+    <div className="mix-music-meter" role="meter" aria-label="取り込んだ伴奏の音量" aria-valuemin={METER_FLOOR_DB} aria-valuemax={0} aria-valuenow={Math.round(Math.max(METER_FLOOR_DB,metrics.music_db))}><i style={{width:`${Math.min(100,Math.max(0,(metrics.music_db-METER_FLOOR_DB)/-METER_FLOOR_DB*100))}%`}}/></div>
+    <strong>{metrics.music_db<=METER_FLOOR_DB?'— dB':`${Math.round(metrics.music_db)} dB`}</strong>
+   </div>}
+   {running&&metrics.music_low&&<p className="hint danger" role="status">取り込んだ伴奏が小さいです。カラオケアプリの音量か、Windowsの音量ミキサーのアプリ別音量を上げてください。</p>}
   </>}
   {!supportsMix&&<p className="hint">声と伴奏のミックスはWindowsで利用できます。</p>}
   {error&&<p className="hint danger" role="alert">{error}</p>}

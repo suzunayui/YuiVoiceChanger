@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -86,6 +86,15 @@ impl Host for TauriHost {
 
     fn open_url(&self, url: &str) -> Result<(), String> {
         self.handle.opener().open_url(url, None::<&str>).map_err(|error| error.to_string())
+    }
+
+    fn reveal_file(&self, file: &Path) {
+        let _ = self.handle.opener().reveal_item_in_dir(file);
+    }
+
+    fn versions(&self) -> (String, String) {
+        let webview = tauri::webview_version().unwrap_or_else(|_| "不明".to_string());
+        (self.handle.package_info().version.to_string(), format!("WebView2 {webview}"))
     }
 
     fn confirm(&self, title: &str, message: &str, detail: &str) -> bool {

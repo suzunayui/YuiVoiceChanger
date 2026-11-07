@@ -40,6 +40,12 @@ impl Host for FakeHost {
     fn confirm(&self, _title: &str, _message: &str, _detail: &str) -> bool {
         false
     }
+    fn reveal_file(&self, file: &Path) {
+        self.opened.lock().unwrap().push(file.to_string_lossy().into_owned());
+    }
+    fn versions(&self) -> (String, String) {
+        ("1.2.3".to_string(), "WebView2 test".to_string())
+    }
     fn set_hotkeys(&self, enabled: bool) -> Vec<String> {
         self.hotkeys.lock().unwrap().push(enabled);
         self.hotkey_failures.lock().unwrap().clone()
@@ -535,6 +541,24 @@ fn renaming_and_icons_check_the_model_is_still_current() {
     assert!(world.app.invoke("rename-model", json!({"path": model, "voice": 1, "alias": "x"})).unwrap_err().contains("切り替わりました"));
     assert!(world.app.invoke("rename-model", json!({"path": model, "voice": 0})).unwrap_err().contains("別名"));
     assert_eq!(world.app.invoke("clear-model-icon", json!({"path": model, "voice": 0})).unwrap()["beatrice_model_icon"], "");
+}
+
+#[test]
+fn saves_the_diagnostic_log_and_shows_it() {
+    let world = world();
+    assert!(world.app.invoke("export-log", Value::Null).unwrap_err().contains("診断ログはまだありません"));
+
+    world.start_running(json!({}));
+    assert_eq!(world.app.invoke("export-log", Value::Null).unwrap(), Value::Null, "cancelled, even while converting");
+    let output = world.temp.join("saved.txt");
+    world.host.picks.lock().unwrap().push(output.clone());
+    assert_eq!(world.app.invoke("export-log", Value::Null).unwrap(), output.to_string_lossy().as_ref());
+    let text = fs::read_to_string(&output).unwrap();
+    assert!(text.starts_with("YuiVoiceChanger 1.2.3\nWebView2 test\nwin32 "), "{text}");
+    let release = text.lines().nth(2).unwrap().split(' ').nth(1).unwrap();
+    assert!(release.starts_with("10.") && release.chars().all(|c| c.is_ascii_digit() || c == '.'), "{text}");
+    assert!(text.contains("fake worker started"), "what Python reports goes in the log: {text}");
+    assert_eq!(*world.host.opened.lock().unwrap().last().unwrap(), output.to_string_lossy());
 }
 
 #[test]

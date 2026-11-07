@@ -450,6 +450,18 @@ else {
     if(result.canceled||!result.filePath)return null;
     fs.writeFileSync(result.filePath,JSON.stringify(config,null,2),'utf8');return result.filePath;
    }
+   if(action==='export-log'){
+    const {exportDiagnosticLog,MISSING_LOG}=require('./diagnostic-log.cjs');
+    const logFile=path.join(HOME,'logs','independent-engine.log');
+    if(!fs.existsSync(logFile))throw Error(MISSING_LOG);
+    const now=new Date(),pad=value=>String(value).padStart(2,'0');
+    const name=`YuiVoiceChanger-log-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
+    const result=await dialog.showSaveDialog(window,{defaultPath:name,filters:[{name:'テキスト',extensions:['txt']}]});
+    if(result.canceled||!result.filePath)return null;
+    exportDiagnosticLog(logFile,result.filePath,os.homedir(),{version:app.getVersion(),electron:process.versions.electron,platform:process.platform,release:os.release(),arch:process.arch,now});
+    shell.showItemInFolder(result.filePath);
+    return result.filePath;
+   }
    if(action==='import-settings'){
     if(calibration.busy||engineState!=='stopped')throw Error('変換や自動設定を停止してください。');
     const result=await dialog.showOpenDialog(window,{properties:['openFile'],filters:[{name:'YuiVoiceChanger 設定',extensions:['json']}]});

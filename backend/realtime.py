@@ -7,6 +7,7 @@ import threading
 import time
 import numpy as np
 
+from backend.audio_diagnostics import AudioDiagnostics
 from backend.scheduled_audio import ScheduledAudio
 from backend.audio_controls import CONTROL_DEFAULTS, normalize_controls, apply_gain
 from backend.vocal_effects import EFFECT_DEFAULTS, normalize_effects, VocalEffects
@@ -49,6 +50,30 @@ def devices():
     return [dict(id=i, name=d['name'], host=hosts[d['hostapi']]['name'],
                  inputs=d['max_input_channels'], outputs=d['max_output_channels'], rate=d['default_samplerate'])
             for i, d in enumerate(sd.query_devices())]
+
+
+# A late callback on the low-latency buffer silently loses input and output blocks (WASAPI
+# reports no status). Singing already waits hundreds of ms, so it can afford a larger buffer.
+SINGING_DEVICE_LATENCY = .1
+LATE_CALLBACK_SECONDS = .03
+
+
+def open_audio_stream(open_stream, singing):
+    """Return the stream and the latency that timing is computed from.
+
+    Measured on WASAPI: 0.1 s reports about 176 ms more than 'low' but the real round trip
+    grows only about 6 ms. Timing keeps the 'low' figure so voice stays on its target time.
+    """
+    import sounddevice as sd
+    stream = open_stream('low')
+    io_latency_ms = sum(stream.latency)*1000
+    if singing:
+        stream.close()
+        try:
+            stream = open_stream(SINGING_DEVICE_LATENCY)
+        except sd.PortAudioError:
+            stream = open_stream('low')
+    return stream, io_latency_ms
 
 
 def audio_settings(sd, input_id, output_id, output_channels, rate=48000):
@@ -263,9 +288,16 @@ class Realtime:
             # fixed delay queued; the conversion gate keeps what was said while muted out of
             # that queue and the effect tails, so unmuting never replays it.
             output_gate = conversion_gate = 0. if self.muted else 1.
+            last_callback = None
+            callback_stats = {'late': 0, 'largest_gap': 0.}
 
             def callback(indata, outdata, frames, timing, status):
-                nonlocal cursor, sequence, output_gate
+                nonlocal cursor, sequence, output_gate, last_callback
+                arrived = time.perf_counter()
+                if last_callback is not None and arrived-last_callback > LATE_CALLBACK_SECONDS:
+                    callback_stats['late'] += 1
+                    callback_stats['largest_gap'] = max(callback_stats['largest_gap'], arrived-last_callback)
+                last_callback = arrived
                 counters['device_errors'] += int(bool(status))
                 position=scheduled.cursor
                 voice=scheduled.take(frames)
@@ -313,12 +345,11 @@ class Realtime:
                 mixer=ProgramMix(config.get('mix_device_id','default'),sd.query_devices(output_id)['name'],self.mix_music_gain)
                 self.program_mix=mixer;mixer.start()
             extra = audio_settings(sd, input_id, output_id, output_channels)
-            stream = sd.Stream(device=(input_id, output_id), samplerate=48000, blocksize=480,
-                channels=(1, output_channels), dtype='float32', latency='low',
-                extra_settings=extra, callback=callback)
+            stream, io_latency_ms = open_audio_stream(lambda latency: sd.Stream(device=(input_id, output_id), samplerate=48000, blocksize=480,
+                channels=(1, output_channels), dtype='float32', latency=latency,
+                extra_settings=extra, callback=callback), bool(config.get('singing_enabled')))
             if self.stop_event.is_set():
                 return
-            io_latency_ms=sum(stream.latency)*1000
             if mixer:
                 from backend.program_mix import settings as mix_schedule
                 manual_timing=None
@@ -341,12 +372,27 @@ class Realtime:
             last_sequence = -1
             last_notice = 0
             clock_report = (0, 0)
+            diagnostics = AudioDiagnostics(lambda line: print(line, file=sys.stderr, flush=True))
+            diagnostics.start(input=config.get('input_name') or input_id, output=config.get('output_name') or output_id,
+                singing=bool(config.get('singing_enabled')), mix=bool(mixer), input_gain=config.get('input_gain'), gain=config.get('gain'),
+                music_gain=self.mix_music_gain if mixer else None, fx=bool(config.get('fx_enabled')), compute=pipeline.device_name,
+                buffer_ms=round(sum(stream.latency)*1000), timing_io_ms=round(io_latency_ms), schedule_ms=round(schedule_ms))
+            def report_diagnostics():
+                largest_gap, callback_stats['largest_gap'] = callback_stats['largest_gap'], 0.
+                values = dict(callback_late=callback_stats['late'], largest_gap_ms=largest_gap*1000,
+                    voice_late_blocks=scheduled.late_blocks, voice_missing_ms=scheduled.missing_after_start/48,
+                    dropped=counters['dropped'], device_errors=counters['device_errors'])
+                if mixer:
+                    values.update(music_gaps=mixer.music.gaps, music_missing_samples=mixer.missing, limited_samples=mixer.limited)
+                diagnostics.report(values, music_db=mixer.level.recent_db if mixer else None)
             while not self.stop_event.is_set():
                 if callback_failure[0]:raise ValueError(callback_failure[0])
                 if mixer and mixer.failure:raise ValueError(mixer.failure)
                 if mixer and (mixer.clock.outliers,mixer.clock.resyncs)!=clock_report:
                     clock_report=(mixer.clock.outliers,mixer.clock.resyncs)
-                    print(f'MIX clock: jumps={clock_report[0]} resyncs={clock_report[1]} largest={mixer.clock.largest_error*1000:.0f}ms',file=sys.stderr,flush=True)
+                    diagnostics.event(f'MIX clock: jumps={clock_report[0]} resyncs={clock_report[1]} largest={mixer.clock.largest_error*1000:.0f}ms')
+                if diagnostics.due():
+                    report_diagnostics()
                 try:
                     seq, audio = incoming.get(timeout=.1)
                 except queue.Empty:
@@ -370,6 +416,7 @@ class Realtime:
                 result = effects_processor.process(result,effects)
                 pipeline.stats['clip'] = int(bool(pipeline.stats.get('clip',0)) or effects_processor.peak > 1.)
                 pipeline.stats['ms'] = (time.perf_counter()-processing_start)*1000
+                diagnostics.observe(pipeline.stats['ms'], pipeline.stats.get('rms', 0.), effects_processor.peak)
                 scheduled.put(seq*block+delay, result)
                 now = time.monotonic()
                 if now-last_notice > .2:
@@ -379,8 +426,10 @@ class Realtime:
                         'output_started': scheduled.started, 'output_samples': scheduled.cursor,
                         'schedule_ms': schedule_ms, 'queue_ms': incoming.qsize()*budget_ms,
                         'latency_estimate_ms': estimate_latency_ms(schedule_ms,pipeline.stats['lookback_ms'],io_latency_ms),
-                        'budget_ms': budget_ms, 'over_budget': pipeline.stats['ms'] > budget_ms})
+                        'budget_ms': budget_ms, 'over_budget': pipeline.stats['ms'] > budget_ms,
+                        **({'music_db': mixer.level.take_db(), 'music_low': mixer.level.low} if mixer else {})})
                     last_notice = now
+            report_diagnostics()
         except Exception as exc:
             import traceback
             traceback.print_exc()

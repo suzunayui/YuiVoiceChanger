@@ -7,8 +7,8 @@ use crate::obs::ObsLink;
 use crate::presets::Presets;
 use crate::runtime::no_window;
 use crate::training::Training;
-use crate::util::{is_file, same, same_file, write_atomic};
-use crate::{icons, obs_plugin, official, runtime, tools};
+use crate::util::{is_file, local_now, same, same_file, write_atomic};
+use crate::{diagnostic_log, icons, obs_plugin, official, runtime, tools};
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
@@ -32,6 +32,10 @@ pub trait Host: Send + Sync {
     fn save_file(&self, default_name: &str, filter_name: &str, extensions: &[&str]) -> Option<PathBuf>;
     fn pictures_dir(&self) -> Option<PathBuf>;
     fn open_url(&self, url: &str) -> Result<(), String>;
+    /// Shows a file in Explorer.
+    fn reveal_file(&self, file: &Path);
+    /// The app's version, and what it runs on for a bug report, such as "WebView2 145.0".
+    fn versions(&self) -> (String, String);
     /// A yes or no question. Only an explicit yes returns true.
     fn confirm(&self, title: &str, message: &str, detail: &str) -> bool;
     /// Registers or clears the global hotkeys, and returns those that couldn't be registered.
@@ -783,6 +787,27 @@ impl App {
         }
     }
 
+    fn export_log(&self) -> Result<Value, String> {
+        let log_file = self.paths.home.join("logs").join("independent-engine.log");
+        if !log_file.exists() {
+            return Err(diagnostic_log::MISSING_LOG.to_string());
+        }
+        let now = local_now();
+        let name = format!("YuiVoiceChanger-log-{}{:02}{:02}-{:02}{:02}.txt", now.year, now.month, now.day, now.hour, now.minute);
+        let Some(output) = self.host.save_file(&name, "テキスト", &["txt"]) else { return Ok(Value::Null) };
+        let (version, runtime) = self.host.versions();
+        let saved_at = format!("{}/{}/{} {}:{:02}:{:02}", now.year, now.month, now.day, now.hour, now.minute, now.second);
+        let args = ["/c", "ver"].map(str::to_string);
+        let cmd = PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string())).join("System32\\cmd.exe");
+        let reported = runtime::run(&cmd, &args, runtime::RunOptions::default()).unwrap_or_default();
+        let release = reported.split_whitespace().last().unwrap_or_default().trim_end_matches(']').to_string();
+        let home = std::env::var("USERPROFILE").unwrap_or_default();
+        let info = diagnostic_log::Info { version: &version, runtime: &runtime, release: &release, saved_at: &saved_at };
+        diagnostic_log::export_diagnostic_log(&log_file, &output, &home, &info)?;
+        self.host.reveal_file(&output);
+        Ok(json!(output.to_string_lossy()))
+    }
+
     fn install_plugin(&self) -> Result<Value, String> {
         {
             let mut st = self.st();
@@ -1193,6 +1218,7 @@ impl App {
                 fs::write(&file, text).map_err(|error| error.to_string())?;
                 Ok(json!(file.to_string_lossy()))
             }
+            "export-log" => self.export_log(),
             "import-settings" => {
                 if self.calibration.busy() || self.st().engine_state != "stopped" {
                     return Err("変換や自動設定を停止してください。".to_string());
