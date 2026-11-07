@@ -52,8 +52,12 @@ if(saved.engine_version!==2&&Object.keys(saved).length&&fs.existsSync(source)){
  const backup=path.join(HOME,'desktop-before-direct-gpu.json');
  if(!fs.existsSync(backup))fs.copyFileSync(source,backup);
 }
+const {SystemMonitor,appendLogLine}=require('./system-monitor.cjs');
+const systemMonitor=new SystemMonitor({publish:status=>send({type:'system-status',...status}),writeLog:line=>appendLogLine(path.join(HOME,'logs','independent-engine.log'),line)});
 function send(event){
  if(event.type==='devices')audioDevices=event.devices;
+ if(event.type==='metrics')systemMonitor.observe(event);
+ if(event.type==='state'){if(event.state==='running')systemMonitor.start();else if(event.state==='stopped')systemMonitor.stop();}
  if(event.type==='state'&&event.state==='running'&&event.manual_timing){
   const next=require('./manual-delay.cjs').adoptManualTiming(config,event.manual_timing);
   if(next){try{event={...event,config:save(next,{engineTiming:true})};}catch(error){send({type:'error',message:'遅延設定の保存に失敗しました。'+error.message});event={...event,config};}}
@@ -515,7 +519,7 @@ else {
    void obs.flush().catch(()=>{});
   });
  });
- app.on('will-quit',()=>globalShortcut.unregisterAll());
+ app.on('will-quit',()=>{globalShortcut.unregisterAll();systemMonitor.stop();});
  app.on('before-quit',event=>{
   officialAbort?.abort();
   presetAbort?.abort();

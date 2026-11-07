@@ -10,6 +10,7 @@ import Slider from './Slider';
 import PresetCard from './PresetCard';
 import SingingSettings,{effectDefaults,type EffectConfig} from './SingingSettings';
 import DiagnosticLog from './DiagnosticLog';
+import SystemStatus from './SystemStatus';
 import {mixDefaults,type MixConfig} from './StreamMix';
 import {obsDefaults,type ObsConfig} from './ObsIntegration';
 import {idleCalibration,type CalibrationStatus} from './LatencyCalibration';
@@ -29,7 +30,7 @@ const samePath=(a:string,b:string)=>a.replace(/\\/g,'/').toLowerCase()===b.repla
 
 function App(){
  const [config,setConfig]=useState<Config>(empty),[tab,setTab]=useState('voice'),[state,setState]=useState('stopped');
- const [devices,setDevices]=useState<Device[]>([]),[metrics,setMetrics]=useState<any>({});
+ const [devices,setDevices]=useState<Device[]>([]),[metrics,setMetrics]=useState<any>({}),[systemStatus,setSystemStatus]=useState<any>(null);
  const [calibration,setCalibration]=useState<CalibrationStatus>(idleCalibration);
  const [presetSwitching,setPresetSwitching]=useState(false);
  const [modelHistory,setModelHistory]=useState<RecentModel[]>([]);
@@ -82,11 +83,12 @@ function App(){
    if(event.type==='state'){
     if(event.config)setConfig(event.config);
     setState(event.state);
-    if(event.state==='running'){setActualDevice(event.device);setMetrics((p:any)=>({...p,budget_ms:event.budget_ms,schedule_ms:event.schedule_ms}));setMessage('');}
+    if(event.state==='running'){setSystemStatus(null);setActualDevice(event.device);setMetrics((p:any)=>({...p,budget_ms:event.budget_ms,schedule_ms:event.schedule_ms}));setMessage('');}
     else{if(event.state==='stopped')setActualDevice('');setMessage(event.state==='loading'?'変換エンジンを準備しています…':'');}
    }
    if(event.type==='loading')setMessage(event.message);
    if(event.type==='metrics')setMetrics(event);
+   if(event.type==='system-status')setSystemStatus(event);
    if(event.type==='error')setError(event.message);
    if(event.type==='notice')setMessage(event.message);
    if(event.type==='mute')setMuted(event.muted);
@@ -245,7 +247,7 @@ function App(){
        <div className="gpu-name" title={state==='running'||state==='stopping'?'変換に実際に使っているCPUまたはGPUです。':'現在の設定で使用する予定のCPUまたはGPUです。実際の使用先は変換開始後に確定します。'}><span>変換の実行先</span><strong>{deviceName}</strong></div>
       </div>
       {state==='running'&&metrics.clip>0&&<p className="monitor-warning" role="status">出力が上限を超えています。出力ゲインを下げてください。</p>}
-      {state==='running'&&(metrics.late_blocks>0||metrics.dropped>0||metrics.device_errors>0)&&<p className="monitor-warning" role="status">音声の処理・入出力が追いつかなかった区間があります。他のGPU処理や音声デバイスの設定を確認してください。</p>}
+      {state==='running'&&(metrics.late_blocks>0||metrics.dropped>0||metrics.device_errors>0||metrics.skipped_blocks>0)&&<p className="monitor-warning" role="status">音声の処理・入出力が追いつかなかった区間があります。他のGPU処理や音声デバイスの設定を確認してください。</p>}
      </section>
     <section className="card"><div className="section-title"><h3>声の調整</h3></div>
      <div className="voice-sliders">
@@ -277,6 +279,7 @@ function App(){
      </div>
      {computeWarning&&<p role="status" className="hint danger">{computeWarning}</p>}
     </fieldset>
+    <SystemStatus status={systemStatus} running={state==='running'}/>
     <DiagnosticLog/>
     <section className="runtime-setup hotkey-setup" aria-label="ホットキー">
      <div className="section-title"><h3>ホットキー</h3></div>
