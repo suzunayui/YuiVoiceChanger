@@ -1,6 +1,6 @@
 {
   "name": "yui-voice-changer",
-  "version": "2026.1107.9",
+  "version": "2026.1107.10",
   "private": true,
   "description": "Yui Voice Changer — independent realtime voice conversion",
   "main": "electron/main.cjs",
