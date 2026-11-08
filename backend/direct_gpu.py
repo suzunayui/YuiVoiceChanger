@@ -117,6 +117,9 @@ class AlignedOverlap:
     def __init__(self, block, overlap=960, search=480, fixed=False):
         self.block, self.overlap, self.search = block, overlap, search
         self.fixed = fixed
+        # Output nearer a window's end comes out quieter. An 80 ms block hardly spans that slope;
+        # longer ones swing in level at every seam, so they match levels across it.
+        self.match_level = block > 3840
         t = np.linspace(0., np.pi, overlap, dtype=np.float32)
         self.fade = .5-.5*np.cos(t)
         self.reset()
@@ -124,6 +127,7 @@ class AlignedOverlap:
     def reset(self):
         self.tail = None
         self.last_shift = self.search//2
+        self.ratio = 1.
 
     def join(self, candidate):
         candidate = np.asarray(candidate, dtype=np.float32)
@@ -139,6 +143,12 @@ class AlignedOverlap:
             scores -= np.abs(np.arange(len(scores))-self.last_shift)*1e-5
             shift = int(np.argmax(scores))
         segment = candidate[shift:shift+self.block+self.overlap].copy()
+        if self.match_level and self.tail is not None:
+            # The overlap is one moment seen by two windows; their level ratio is the drift.
+            old, new = np.sqrt(np.mean(self.tail**2)), np.sqrt(np.mean(segment[:self.overlap]**2))
+            if old > 1e-4 and new > 1e-4:
+                self.ratio = .5*self.ratio+.5*float(np.clip(old/new, .5, 2.))
+            segment *= np.linspace(self.ratio, 1., len(segment), dtype=np.float32)
         if self.tail is not None:
             segment[:self.overlap] = self.tail*(1-self.fade)+segment[:self.overlap]*self.fade
         else:
